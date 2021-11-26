@@ -1,12 +1,9 @@
 from typing import Optional, Sequence
-from torch.nn.modules.pooling import AvgPool1d
-from torch.utils import data
 from tqdm import tqdm
-import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, dataloader
+from torch.utils.data import DataLoader
 
 
 class Generator(nn.Module):
@@ -115,7 +112,7 @@ def train_epoch(
             generator_optimizer.step()
         
         pbar.set_description(
-            f'Critic loss = {critic_loss.detach().cpu().numpy():.3f}, ' \
+            f'Critic loss = {critic_loss.detach().cpu().numpy():.3f}, '
             f'Generator loss = {generator_loss.detach().cpu().numpy():.3f}')
 
 
