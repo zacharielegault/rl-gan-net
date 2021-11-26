@@ -102,11 +102,11 @@ class ChamferLoss(nn.Module):
 
 
 def robust_norm(var):
-    '''
+    """
     :param var: Variable of BxCxHxW
     :return: p-norm of BxCxW
-    '''
-    result = ((var**2).sum(dim=2) + 1e-8).sqrt() # TODO try infinity norm
+    """
+    result = ((var**2).sum(dim=2) + 1e-8).sqrt()  # TODO try infinity norm
     # result = (var ** 2).sum(dim=2)
 
     # try to make the points less dense, caused by the backward loss
@@ -114,18 +114,11 @@ def robust_norm(var):
     return result
 
 
-
-# DATA_DIR = 'path_to_data'
-
-X_train  = 'path_to_X_train'
-X_test  = 'path_to_X_test'
-
-
 class PointcloudDatasetAE(Dataset):
     def __init__(self, root, list_point_clouds):
         self.root = root
         self.list_files = list_point_clouds
-        
+
     def __len__(self):
         return len(self.list_files)
 
@@ -135,74 +128,77 @@ class PointcloudDatasetAE(Dataset):
         points_normalized = (points - (-0.5)) / (0.5 - (-0.5))
         points = points_normalized.astype(np.float)
         points = torch.from_numpy(points)
-        
+
         return points
 
 
-train_dataset = PointcloudDatasetAE(DATA_DIR, X_train)
-train_dataloader = DataLoader(train_dataset, num_workers=2, shuffle=False, batch_size=48)
+def main():
+    # DATA_DIR = 'path_to_data'
 
-test_dataset = PointcloudDatasetAE(DATA_DIR, X_test)
-test_dataloader = DataLoader(test_dataset, num_workers=2, shuffle=False, batch_size=1)
+    X_train = 'path_to_X_train'
+    X_test = 'path_to_X_test'
 
-# for i, data in enumerate(train_dataloader):
-#     data = data.permute([0,2,1])
-#     print(data.shape)
-#     break
+    train_dataset = PointcloudDatasetAE(DATA_DIR, X_train)
+    train_dataloader = DataLoader(train_dataset, num_workers=2, shuffle=False, batch_size=48)
+
+    test_dataset = PointcloudDatasetAE(DATA_DIR, X_test)
+    test_dataloader = DataLoader(test_dataset, num_workers=2, shuffle=False, batch_size=1)
+
+    # for i, data in enumerate(train_dataloader):
+    #     data = data.permute([0,2,1])
+    #     print(data.shape)
+    #     break
+
+    autoencoder = AutoEncoder(2048).to(device)
+    # chamfer_loss = ChamferLossOrig(0).to(device)
+    chamfer_loss = ChamferLoss(2048).to(device)
+
+    # ROOT_DIR = './ae_out_copy/'
+    now = str(datetime.datetime.now())
+
+    if not os.path.exists(ROOT_DIR):
+        os.makedirs(ROOT_DIR)
+
+    if not os.path.exists(ROOT_DIR + now):
+        os.makedirs(ROOT_DIR + now)
+
+    LOG_DIR = ROOT_DIR + now + '/logs/'
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR)
+
+    OUTPUTS_DIR = ROOT_DIR + now + '/outputs/'
+    if not os.path.exists(OUTPUTS_DIR):
+        os.makedirs(OUTPUTS_DIR)
+
+    MODEL_DIR = ROOT_DIR + now + '/models/'
+    if not os.path.exists(MODEL_DIR):
+        os.makedirs(MODEL_DIR)
+
+    summary_writer = SummaryWriter(LOG_DIR)
+
+    lr = 1.0e-4
+    momentum = 0.95
+    epochs = 1000
+    optimizer_AE = torch.optim.Adam(autoencoder.parameters(), lr=lr, betas=(momentum, 0.999))
+
+    print('Training')
+    for epoch in range(epochs):
+        autoencoder.train()
+        for i, data in enumerate(train_dataloader):
+            data = data.permute([0, 2, 1]).float().to(device)
+
+            optimizer_AE.zero_grad()
+            out_data, gfv = autoencoder(data)
+
+            loss = chamfer_loss(out_data, data)
+            loss.backward()
+            optimizer_AE.step()
+
+            print('Epoch: {}, Iteration: {}, Content Loss: {}'.format(epoch, i, loss.item()))
+            summary_writer.add_scalar('Content Loss', loss.item())
+
+        torch.save(autoencoder.state_dict(), MODEL_DIR+'{}_ae_.pt'.format(epoch))
 
 
-
-autoencoder = AutoEncoder(2048).to(device)
-# chamfer_loss = ChamferLossOrig(0).to(device)
-chamfer_loss = ChamferLoss(2048).to(device)
-
-
-# ROOT_DIR = './ae_out_copy/'
-now =   str(datetime.datetime.now())
-
-if not os.path.exists(ROOT_DIR):
-    os.makedirs(ROOT_DIR)
-
-if not os.path.exists(ROOT_DIR + now):
-    os.makedirs(ROOT_DIR + now)
-
-LOG_DIR = ROOT_DIR + now + '/logs/'
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
-
-OUTPUTS_DIR = ROOT_DIR  + now + '/outputs/'
-if not os.path.exists(OUTPUTS_DIR):
-    os.makedirs(OUTPUTS_DIR)
-
-MODEL_DIR = ROOT_DIR + now + '/models/'
-if not os.path.exists(MODEL_DIR):
-    os.makedirs(MODEL_DIR)
-
-summary_writer = SummaryWriter(LOG_DIR)
-
-
-
-lr = 1.0e-4
-momentum = 0.95
-epochs = 1000
-optimizer_AE = torch.optim.Adam(autoencoder.parameters(), lr=lr, betas=(momentum, 0.999))
-
-
-
-print('Training')
-for epoch in range(epochs):
-    autoencoder.train()
-    for i, data in enumerate(train_dataloader):
-        data = data.permute([0,2,1]).float().to(device)
-
-        optimizer_AE.zero_grad()
-        out_data, gfv = autoencoder(data)
-
-        loss = chamfer_loss(out_data, data)
-        loss.backward()
-        optimizer_AE.step()
-        
-        print('Epoch: {}, Iteration: {}, Content Loss: {}'.format(epoch, i, loss.item()))
-        summary_writer.add_scalar('Content Loss', loss.item())
-    
-    torch.save(autoencoder.state_dict(), MODEL_DIR+'{}_ae_.pt'.format(epoch))
+if __name__ == "__main__":
+    main()
