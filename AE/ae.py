@@ -1,3 +1,4 @@
+from typing import Sequence, Tuple
 import os
 import sys
 import tqdm
@@ -7,7 +8,7 @@ import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from pyntcloud import PyntCloud
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 from mpl_toolkits.mplot3d import Axes3D
@@ -16,67 +17,68 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class Encoder(nn.Module):
-    def __init__(self):
-        super(Encoder, self).__init__()
-        conv1 = [nn.Conv1d(3, 64, kernel_size=1), 
-                nn.BatchNorm1d(64),
-                nn.ReLU()]
-        conv2 = [nn.Conv1d(64, 128, kernel_size=1), 
-                nn.BatchNorm1d(128),
-                nn.ReLU()]
-        conv3 = [nn.Conv1d(128, 256, kernel_size=1), 
-                nn.BatchNorm1d(256),
-                nn.ReLU()]
-        conv4 = [nn.Conv1d(256, 128, kernel_size=1), 
-                nn.BatchNorm1d(128),
-                nn.AdaptiveMaxPool1d(1)]
-        self.conv1 = nn.Sequential(*conv1)
-        self.conv2 = nn.Sequential(*conv2)        
-        self.conv3 = nn.Sequential(*conv3)
-        self.conv4 = nn.Sequential(*conv4)
+    # Encoder([3, 64, 128, 256, 128])
+    def __init__(self, dimensions: Sequence[int]):
+        super().__init__()
+
+        layers = []
+        for i, (in_channels, out_channels) in enumerate(zip(dimensions[:-1], dimensions[1:])):
+            layers.append(nn.Conv1d(in_channels, out_channels, 1))
+            layers.append(nn.BatchNorm1d(out_channels))
+
+            if i < len(dimensions) - 2:
+                layers.append(nn.ReLU())
+            else:
+                layers.append(nn.AdaptiveMaxPool1d(1))
+
+        self.net = nn.Sequential(*layers)
         
-    def forward(self, x):
-        out_1 = self.conv1(x)
-        out_2 = self.conv2(out_1)
-        out_3 = self.conv3(out_2)
-        out_4 = self.conv4(out_3)
-        print(out_4.shape)
-        out_4 = out_4.view(-1, out_4.shape[1])
-        print(out_4.shape)
-        return out_4
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Expects tensor of shape (batch_size, 3, num_points).
+        """
+        gfv = self.net(x)  # (batch_size, gfv_dimension, 1)
+        return gfv.view(-1, gfv.size(1))
 
 
 class Decoder(nn.Module):
-    def __init__(self, num_points):
-        super(Decoder, self).__init__()
-        linear1 = [nn.Linear(128, 256), 
-                nn.BatchNorm1d(256),
-                nn.ReLU()]
-        linear2 = [nn.Linear(256, 256), 
-                nn.BatchNorm1d(256),
-                nn.ReLU()]
-        linear3 = [nn.Linear(256, 6144), 
-                nn.ReLU()]
-        self.linear1 = nn.Sequential(*linear1)
-        self.linear2 = nn.Sequential(*linear2)
-        self.linear3 = nn.Sequential(*linear3)
+    # Decoder([128, 256, 256, 3], 2048)
+    def __init__(self, dimensions: Sequence[int], num_points: int):
+        super().__init__()
+
+        layers = []
+        for in_channels, out_channels in zip(dimensions[:-2], dimensions[1:-1]):
+            layers.append(nn.Linear(in_channels, out_channels))
+            layers.append(nn.BatchNorm1d(out_channels))
+            layers.append(nn.ReLU())
+
+        layers.append(nn.Linear(dimensions[-2], dimensions[-1]*num_points))
+        self.net = nn.Sequential(*layers)
+
+        self.output_dim = dimensions[-1]
         self.num_points = num_points
         
-    def forward(self, x):
-        out_1 = self.linear1(x)
-        out_2 = self.linear2(out_1)
-        out_3 = self.linear3(out_2)
-        
-        return out_3.view(-1, 3, self.num_points)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Expects tensor of shape (batch_size, 3, dimensions[0]).
+        """
+        pointclouds = self.net(x)
+        return pointclouds.view(-1, self.output_dim, self.num_points)
 
 
 class AutoEncoder(nn.Module):
-    def __init__(self, num_points):
+    # AutoEncoder([3, 64, 128, 256, 128], [128, 256, 256, 3], 2048)
+    def __init__(
+        self,
+        encoder_dimensions: Sequence[int],
+        decoder_dimensions: Sequence[int],
+        num_points: int,
+    ):
         super(AutoEncoder, self).__init__()
-        self.encoder = Encoder()
-        self.decoder = Decoder(num_points)
+        self.encoder = Encoder(encoder_dimensions)
+        self.decoder = Decoder(decoder_dimensions, num_points)
         
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Expects tensor of shape (batch_size, 3, num_points).
+        """
         gfv = self.encoder(x)
         out = self.decoder(gfv)
         
@@ -84,20 +86,20 @@ class AutoEncoder(nn.Module):
 
 
 class ChamferLoss(nn.Module):
-    def __init__(self, num_points):
-        super(ChamferLoss, self).__init__()
+    def __init__(self, num_points: int):
+        super().__init__()
         self.num_points = num_points
-        self.loss = torch.FloatTensor([0]).to(device)
 
-        
-    def forward(self, predict_pc, gt_pc):
-        z, _ = torch.min(torch.norm(gt_pc.unsqueeze(-2) - predict_pc.unsqueeze(-1),dim=1), dim=-2)
-            # self.loss += z.sum()
-        self.loss = z.sum() / (len(gt_pc)*self.num_points)
+    def forward(self, predict_pc: torch.Tensor, gt_pc: torch.Tensor) -> torch.Tensor:
+        """Expects tensors of shape (batch_size, 3, num_points).
+        """
+        z1, _ = torch.min(torch.norm(gt_pc.unsqueeze(-2) - predict_pc.unsqueeze(-1), dim=1), dim=-2)
+        loss = z1.sum() / (len(gt_pc)*self.num_points)
 
-        z_2, _ = torch.min(torch.norm(predict_pc.unsqueeze(-2) - gt_pc.unsqueeze(-1),dim=1), dim=-2)
-        self.loss += z_2.sum() / (len(gt_pc)*self.num_points)
-        return self.loss
+        z_2, _ = torch.min(torch.norm(predict_pc.unsqueeze(-2) - gt_pc.unsqueeze(-1), dim=1), dim=-2)
+        loss += z_2.sum() / (len(gt_pc)*self.num_points)
+        return loss
+
 
 def robust_norm(var):
     '''
