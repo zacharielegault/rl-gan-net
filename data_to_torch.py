@@ -46,21 +46,3 @@ for split in range(1, 6 + 1):
         crowns = np.swapaxes(crowns, 1, 2)
         crowns = torch.from_numpy(crowns)
         torch.save(crowns, f"data/individual_splits/crowns_{split}_{phase}.pt")
-
-# Gather splits
-os.makedirs("data/gathered_splits")
-
-splits = {}
-for i, split_indices in enumerate(itertools.combinations(range(1, 6 + 1), 5)):
-    for dataset, individual_split, phase in itertools.product(
-        ["contexts", "opposing", "crowns"], split_indices, ["train", "val", "test"]
-    ):
-        data_tensor = torch.load(f"data/individual_splits/{dataset}_{individual_split}_{phase}.pt")
-
-        try:
-            splits[f"{dataset}_{i}_{phase}"].append(data_tensor)
-        except KeyError:
-            splits[f"{dataset}_{i}_{phase}"] = [data_tensor]
-
-for name, split in splits.items():
-    torch.save(torch.cat(split, dim=0), f"data/gathered_splits/{name}.pt")
