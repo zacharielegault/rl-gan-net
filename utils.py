@@ -2,6 +2,7 @@ from typing import Optional
 import numpy as np
 import open3d as o3d
 
+
 def read_pointcloud(ply_file_path: str, subsample: Optional[int] = None) -> np.ndarray:
     """
     Example usage to gather and subsample all PLY files in a directory:
