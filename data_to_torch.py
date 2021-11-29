@@ -21,7 +21,7 @@ for name, directory in directories.items():
     torch.save(crowns, f"data/{name}.pt")
 
 # Individual splits
-os.makedirs("data/individual_splits")
+os.makedirs("data/splits")
 
 for split in range(1, 6 + 1):
     for phase in ["train", "val", "test"]:
@@ -33,16 +33,16 @@ for split in range(1, 6 + 1):
         contexts = np.asarray([read_pointcloud(f"data/preprocessed_partitions/{f}", 2048) for f in df["context_file"]])
         contexts = np.swapaxes(contexts, 1, 2)
         contexts = torch.from_numpy(contexts)
-        torch.save(contexts, f"data/individual_splits/contexts_{split}_{phase}.pt")
+        torch.save(contexts, f"data/splits/contexts_{split}_{phase}.pt")
 
         # Opposing
         opposing = np.asarray([read_pointcloud(f"data/opposing_partitions/{f}", 2048) for f in df["opposing_file"]])
         opposing = np.swapaxes(opposing, 1, 2)
         opposing = torch.from_numpy(opposing)
-        torch.save(opposing, f"data/individual_splits/opposing_{split}_{phase}.pt")
+        torch.save(opposing, f"data/splits/opposing_{split}_{phase}.pt")
 
         # Crowns
         crowns = np.asarray([read_pointcloud(f"data/crowns/{f}", 2048) for f in df["crown_file"]])
         crowns = np.swapaxes(crowns, 1, 2)
         crowns = torch.from_numpy(crowns)
-        torch.save(crowns, f"data/individual_splits/crowns_{split}_{phase}.pt")
+        torch.save(crowns, f"data/splits/crowns_{split}_{phase}.pt")
