@@ -1,19 +1,10 @@
 from typing import Sequence, Tuple
 import os
-import sys
-import tqdm
 import torch
 import datetime
-import numpy as np
 import torch.nn as nn
-import matplotlib.pyplot as plt
-from pyntcloud import PyntCloud
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import Dataset, DataLoader
-from sklearn.model_selection import train_test_split
-from mpl_toolkits.mplot3d import Axes3D
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+from torch.utils.data import DataLoader
 
 
 class Encoder(nn.Module):
@@ -101,59 +92,17 @@ class ChamferLoss(nn.Module):
         return loss
 
 
-def robust_norm(var):
-    """
-    :param var: Variable of BxCxHxW
-    :return: p-norm of BxCxW
-    """
-    result = ((var**2).sum(dim=2) + 1e-8).sqrt()  # TODO try infinity norm
-    # result = (var ** 2).sum(dim=2)
-
-    # try to make the points less dense, caused by the backward loss
-    # result = result.clamp(min=7e-3, max=None)
-    return result
-
-
-class PointcloudDatasetAE(Dataset):
-    def __init__(self, root, list_point_clouds):
-        self.root = root
-        self.list_files = list_point_clouds
-
-    def __len__(self):
-        return len(self.list_files)
-
-    def __getitem__(self, index):
-        points = PyntCloud.from_file(self.list_files[index])
-        points = np.array(points.points)
-        points_normalized = (points - (-0.5)) / (0.5 - (-0.5))
-        points = points_normalized.astype(np.float)
-        points = torch.from_numpy(points)
-
-        return points
-
-
 def main():
-    # DATA_DIR = 'path_to_data'
+    print(os.getcwd())
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    X_train = 'path_to_X_train'
-    X_test = 'path_to_X_test'
+    train_dataloader = DataLoader(torch.load("data/splits/contexts_1_train.pt"), shuffle=True, batch_size=24)
+    test_dataloader = DataLoader(torch.load("data/splits/contexts_1_val.pt"), shuffle=False, batch_size=1)
 
-    train_dataset = PointcloudDatasetAE(DATA_DIR, X_train)
-    train_dataloader = DataLoader(train_dataset, num_workers=2, shuffle=False, batch_size=48)
-
-    test_dataset = PointcloudDatasetAE(DATA_DIR, X_test)
-    test_dataloader = DataLoader(test_dataset, num_workers=2, shuffle=False, batch_size=1)
-
-    # for i, data in enumerate(train_dataloader):
-    #     data = data.permute([0,2,1])
-    #     print(data.shape)
-    #     break
-
-    autoencoder = AutoEncoder(2048).to(device)
-    # chamfer_loss = ChamferLossOrig(0).to(device)
+    autoencoder = AutoEncoder([3, 64, 128, 256, 128], [128, 256, 256, 3], 2048).to(device)
     chamfer_loss = ChamferLoss(2048).to(device)
 
-    # ROOT_DIR = './ae_out_copy/'
+    ROOT_DIR = './autoencoder_training/'
     now = str(datetime.datetime.now())
 
     if not os.path.exists(ROOT_DIR):
@@ -179,25 +128,23 @@ def main():
     lr = 1.0e-4
     momentum = 0.95
     epochs = 1000
-    optimizer_AE = torch.optim.Adam(autoencoder.parameters(), lr=lr, betas=(momentum, 0.999))
+    optimizer = torch.optim.Adam(autoencoder.parameters(), lr=lr, betas=(momentum, 0.999))
 
     print('Training')
     for epoch in range(epochs):
         autoencoder.train()
         for i, data in enumerate(train_dataloader):
-            data = data.permute([0, 2, 1]).float().to(device)
+            data = data.to(device)
 
-            optimizer_AE.zero_grad()
+            optimizer.zero_grad()
             out_data, gfv = autoencoder(data)
 
             loss = chamfer_loss(out_data, data)
             loss.backward()
-            optimizer_AE.step()
+            optimizer.step()
 
-            print('Epoch: {}, Iteration: {}, Content Loss: {}'.format(epoch, i, loss.item()))
+            print(f"Epoch: {epoch}, Iteration: {i}, Content Loss: {loss.item()}")
             summary_writer.add_scalar('Content Loss', loss.item())
-
-        torch.save(autoencoder.state_dict(), MODEL_DIR+'{}_ae_.pt'.format(epoch))
 
 
 if __name__ == "__main__":
