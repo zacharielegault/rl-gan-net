@@ -1,5 +1,4 @@
 from typing import Sequence, Tuple
-import multiprocessing
 import os
 import torch
 import datetime
@@ -66,7 +65,7 @@ class AutoEncoder(nn.Module):
         decoder_dimensions: Sequence[int],
         num_points: int,
     ):
-        super(AutoEncoder, self).__init__()
+        super().__init__()
         self.encoder = Encoder(encoder_dimensions)
         self.decoder = Decoder(decoder_dimensions, num_points)
         
@@ -92,7 +91,7 @@ def chamfer_loss(predicted_clouds: torch.Tensor, target_clouds: torch.Tensor) ->
 
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    num_workers = multiprocessing.cpu_count()
+    num_workers = os.cpu_count()
     split = 1
 
     train_dataset = DentalArchesDataset(
