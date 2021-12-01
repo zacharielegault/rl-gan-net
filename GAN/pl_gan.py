@@ -60,6 +60,7 @@ class GAN(pl.LightningModule):
         z = torch.randn(batch.shape[0], self.z_dim).type_as(batch)
         fake_crit = self.critic(self.generator(z))
         loss = -torch.mean(fake_crit)
+        self.log('generator_loss', loss, on_step=False, on_epoch=True)
         return {'loss': loss, 'progress_bar': {'generator_loss': loss}, 'log': {'generator_loss': loss}}
 
     def _critic_training_step(self, batch: torch.Tensor):
@@ -73,6 +74,7 @@ class GAN(pl.LightningModule):
         real_crit = self.critic(gfv)
         loss = -(real_crit.mean() - fake_crit.mean())
         loss = loss + self.lambda_gp * compute_gradient_penalty(self.critic, gfv, generated, self.device)
+        self.log('critic_loss', loss, on_step=False, on_epoch=True)
         return {'loss': loss, 'progress_bar': {'critic_loss': loss}, 'log': {'critic_loss': loss}}
 
     def configure_optimizers(self):
@@ -84,7 +86,7 @@ class GAN(pl.LightningModule):
         )
 
     def train_dataloader(self):
-        num_workers = os.cpu_count()
+        num_workers = 0  # os.cpu_count()
         train_dataset = DentalArchesDataset(
             csv_filepath=f"data/kfold_split/split_{self.split}_train.csv",
             context_directory="data/preprocessed_partitions",
@@ -115,16 +117,17 @@ def main():
         num_points=2048,
         autoencoder_checkpoint="lightning_logs/version_4/checkpoints/epoch=2182-step=10914.ckpt",
         split=split,
+        batch_size=8,
     )
     trainer = pl.Trainer(
         gpus=1,
         max_epochs=10000,
         log_every_n_steps=1,
         precision=16,
-        auto_scale_batch_size="binsearch",
+        # auto_scale_batch_size="binsearch",
         callbacks=[
-            # ModelCheckpoint(monitor="loss/val", verbose=True),
-            # EarlyStopping(monitor="loss/val", patience=500, verbose=True)
+            ModelCheckpoint(monitor="critic_loss", verbose=True),
+            EarlyStopping(monitor="critic_loss", patience=500, verbose=True)
         ]
     )
 
