@@ -79,20 +79,15 @@ class AutoEncoder(nn.Module):
         return out, gfv
 
 
-class ChamferLoss(nn.Module):
-    def __init__(self, num_points: int):
-        super().__init__()
-        self.num_points = num_points
+def chamfer_loss(predicted_clouds: torch.Tensor, target_clouds: torch.Tensor) -> torch.Tensor:
+    """Expects tensors of shape (batch_size, 3, num_points).
+    """
+    z1, _ = torch.min(torch.norm(target_clouds.unsqueeze(-2) - predicted_clouds.unsqueeze(-1), dim=1), dim=-2)
+    loss = z1.sum() / (len(target_clouds) * target_clouds.size(-1))
 
-    def forward(self, predict_pc: torch.Tensor, gt_pc: torch.Tensor) -> torch.Tensor:
-        """Expects tensors of shape (batch_size, 3, num_points).
-        """
-        z1, _ = torch.min(torch.norm(gt_pc.unsqueeze(-2) - predict_pc.unsqueeze(-1), dim=1), dim=-2)
-        loss = z1.sum() / (len(gt_pc)*self.num_points)
-
-        z_2, _ = torch.min(torch.norm(predict_pc.unsqueeze(-2) - gt_pc.unsqueeze(-1), dim=1), dim=-2)
-        loss += z_2.sum() / (len(gt_pc)*self.num_points)
-        return loss
+    z_2, _ = torch.min(torch.norm(predicted_clouds.unsqueeze(-2) - target_clouds.unsqueeze(-1), dim=1), dim=-2)
+    loss += z_2.sum() / (len(target_clouds) * target_clouds.size(-1))
+    return loss
 
 
 def main():
@@ -122,7 +117,7 @@ def main():
         batch_size=24,
         num_workers=num_workers,
         pin_memory=True,
-        persistent_workers=True
+        persistent_workers=num_workers > 0,
     )
 
     val_dataloader = DataLoader(
@@ -131,11 +126,10 @@ def main():
         batch_size=1,
         num_workers=num_workers,
         pin_memory=True,
-        persistent_workers=True
+        persistent_workers=num_workers > 0,
     )
 
     autoencoder = AutoEncoder([3, 64, 128, 256, 128], [128, 256, 256, 3], 2048).to(device)
-    chamfer_loss = ChamferLoss(2048).to(device)
 
     ROOT_DIR = './autoencoder_training/'
     now = str(datetime.datetime.now())
@@ -174,8 +168,8 @@ def main():
             input_clouds = input_clouds.to(device)
             target_clouds = target_clouds.to(device)
             optimizer.zero_grad()
-            out_data, gfv = autoencoder(input_clouds)
-            loss = chamfer_loss(out_data, target_clouds)
+            predicted_clouds, gfv = autoencoder(input_clouds)
+            loss = chamfer_loss(predicted_clouds, target_clouds)
             loss.backward()
             optimizer.step()
 
@@ -190,8 +184,8 @@ def main():
             with torch.no_grad():
                 input_clouds = input_clouds.to(device)
                 target_clouds = target_clouds.to(device)
-                out_data, gfv = autoencoder(input_clouds)
-                loss = chamfer_loss(out_data, target_clouds)
+                predicted_clouds, gfv = autoencoder(input_clouds)
+                loss = chamfer_loss(predicted_clouds, target_clouds)
 
                 cum_val_loss += loss * val_dataloader.batch_size
 
