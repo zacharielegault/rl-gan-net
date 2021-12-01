@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import pandas as pd
 
-from utils import read_pointcloud
+from dataset import read_pointcloud
 
 
 # All clouds
