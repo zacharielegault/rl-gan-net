@@ -1,15 +1,12 @@
 from typing import Sequence, Tuple
 import os
 import torch
-import datetime
-import torch.nn as nn
-from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from dataset import DentalArchesDataset
-from ae import Encoder, Decoder, chamfer_loss
+from AE.ae import Encoder, Decoder, chamfer_loss
 
 
 class AutoEncoder(pl.LightningModule):
