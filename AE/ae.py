@@ -1,10 +1,13 @@
 from typing import Sequence, Tuple
+import multiprocessing
 import os
 import torch
 import datetime
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
+
+from dataset import DentalArchesDataset
 
 
 class Encoder(nn.Module):
@@ -93,11 +96,43 @@ class ChamferLoss(nn.Module):
 
 
 def main():
-    print(os.getcwd())
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    num_workers = multiprocessing.cpu_count()
+    split = 1
 
-    train_dataloader = DataLoader(torch.load("data/splits/contexts_1_train.pt"), shuffle=True, batch_size=24)
-    test_dataloader = DataLoader(torch.load("data/splits/contexts_1_val.pt"), shuffle=False, batch_size=1)
+    train_dataset = DentalArchesDataset(
+        csv_filepath=f"data/kfold_split/split_{split}_train.csv",
+        context_directory="data/preprocessed_partitions",
+        opposing_directory="data/opposing_partitions",
+        crown_directory="data/crowns",
+        num_points=2048,
+    )
+
+    val_dataset = DentalArchesDataset(
+        csv_filepath=f"data/kfold_split/split_{split}_val.csv",
+        context_directory="data/preprocessed_partitions",
+        opposing_directory="data/opposing_partitions",
+        crown_directory="data/crowns",
+        num_points=2048,
+    )
+
+    train_dataloader = DataLoader(
+        train_dataset,
+        shuffle=True,
+        batch_size=24,
+        num_workers=num_workers,
+        pin_memory=True,
+        persistent_workers=True
+    )
+
+    val_dataloader = DataLoader(
+        val_dataset,
+        shuffle=False,
+        batch_size=1,
+        num_workers=num_workers,
+        pin_memory=True,
+        persistent_workers=True
+    )
 
     autoencoder = AutoEncoder([3, 64, 128, 256, 128], [128, 256, 256, 3], 2048).to(device)
     chamfer_loss = ChamferLoss(2048).to(device)
@@ -124,27 +159,43 @@ def main():
         os.makedirs(MODEL_DIR)
 
     summary_writer = SummaryWriter(LOG_DIR)
+    print(f"Tensorbord logdir: {LOG_DIR}")
 
     lr = 1.0e-4
     momentum = 0.95
     epochs = 1000
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr=lr, betas=(momentum, 0.999))
 
-    print('Training')
     for epoch in range(epochs):
+        # Training loop
         autoencoder.train()
-        for i, data in enumerate(train_dataloader):
-            data = data.to(device)
-
+        cum_train_loss = 0
+        for i, (input_clouds, target_clouds) in enumerate(train_dataloader):
+            input_clouds = input_clouds.to(device)
+            target_clouds = target_clouds.to(device)
             optimizer.zero_grad()
-            out_data, gfv = autoencoder(data)
-
-            loss = chamfer_loss(out_data, data)
+            out_data, gfv = autoencoder(input_clouds)
+            loss = chamfer_loss(out_data, target_clouds)
             loss.backward()
             optimizer.step()
 
-            print(f"Epoch: {epoch}, Iteration: {i}, Content Loss: {loss.item()}")
-            summary_writer.add_scalar('Content Loss', loss.item())
+            cum_train_loss += loss * train_dataloader.batch_size
+
+        summary_writer.add_scalar('Train loss', cum_train_loss / len(train_dataset), epoch)
+
+        # Validation loop
+        autoencoder.eval()
+        cum_val_loss = 0
+        for i, (input_clouds, target_clouds) in enumerate(val_dataloader):
+            with torch.no_grad():
+                input_clouds = input_clouds.to(device)
+                target_clouds = target_clouds.to(device)
+                out_data, gfv = autoencoder(input_clouds)
+                loss = chamfer_loss(out_data, target_clouds)
+
+                cum_val_loss += loss * val_dataloader.batch_size
+
+        summary_writer.add_scalar('Val loss', cum_val_loss / len(val_dataset), epoch)
 
 
 if __name__ == "__main__":
