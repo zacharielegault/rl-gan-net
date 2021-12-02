@@ -1,6 +1,4 @@
 import os
-import sys
-import tqdm
 import torch
 import random
 import datetime
@@ -10,15 +8,17 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
-from pyntcloud import PyntCloud
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset, DataLoader
-from sklearn.model_selection import train_test_split
-from mpl_toolkits.mplot3d import Axes3D
 
-######### Parameters
-max_action = 2 # To be cheched
-z_dim = 5 # To be cheched
+from dataset import DentalArchesDataset
+from AE.pl_ae import AutoEncoder
+from AE.ae import chamfer_loss
+from GAN.pl_gan import GAN
+
+# Parameters
+max_action = 2  # To be cheched
+z_dim = 5  # To be cheched
 max_steps = 1e6
 batch_size_actor = 100
 start_time = 1e3
@@ -32,7 +32,7 @@ torch.manual_seed(15)
 # ### Replay Buffer
 
 
-class ReplayBuffer():
+class ReplayBuffer:
     def __init__(self, size):
         self.episodes = []
         self.buffer_size = size
@@ -57,7 +57,7 @@ class ReplayBuffer():
             next_state.append(epi[3])
         
         rewards = np.array(rewards)
-        rewards = rewards.reshape((rewards.shape[0],1))
+        rewards = rewards.reshape((rewards.shape[0], 1))
         return torch.Tensor(states), torch.Tensor(actions), torch.Tensor(rewards), torch.Tensor(next_state)
 
 
@@ -70,7 +70,6 @@ class CriticNet(nn.Module):
         self.state_dim = state_dim
         self.num_actions = z_shape
         
-
         self.linear1 = nn.Linear(self.state_dim, 400)
         self.bn1 = nn.BatchNorm1d(400)
         self.linear2 = nn.Linear(400 + z_shape, 300)
@@ -79,7 +78,7 @@ class CriticNet(nn.Module):
         self.linear4 = nn.Linear(300, 1)
 
         for m in self.modules():
-            if isinstance(m,nn.Conv2d) or isinstance(m, nn.Linear):
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
                 nn.init.xavier_normal_(m.weight)
 
     def forward(self, state, z):
@@ -101,10 +100,10 @@ class ActorNet(nn.Module):
         self.num_actions = z_shape
 
         self.linear1 = nn.Linear(self.state_dim, 400)
-        self.bn1 = nn.BatchNorm1d(100)
+        # self.bn1 = nn.BatchNorm1d(400)
 
         self.linear2 = nn.Linear(400, 400)
-        self.bn2 = nn.BatchNorm1d(300)
+        # self.bn2 = nn.BatchNorm1d(400)
 
         self.linear3 = nn.Linear(400, 300)
         self.linear4 = nn.Linear(300, self.num_actions)
@@ -112,7 +111,7 @@ class ActorNet(nn.Module):
         self.max_action = max_action
 
         for m in self.modules():
-            if isinstance(m,nn.Conv2d) or isinstance(m, nn.Linear):
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
                 nn.init.xavier_normal_(m.weight)
 
     def forward(self, x):
@@ -122,18 +121,6 @@ class ActorNet(nn.Module):
         out = F.tanh(self.linear3(out))
         out = self.max_action * F.tanh(self.linear4(out))
         return out
-
-
-# ### Autoencoder
-
-
-# ### Generator
-
-
-# ### Self-Attention
-
-
-# ### Discriminator
 
 
 class DDPG(nn.Module):
@@ -153,9 +140,9 @@ class DDPG(nn.Module):
     def forward(self):
         state, action, reward, next_state = self.replay_buffer.get_batch(batch_size_actor)
         
-        state = state[:,0,:].float()
-        next_state = next_state[:,0,:].float()
-        action = action[:,0,:].float()
+        state = state[:, 0, :].float()
+        next_state = next_state[:, 0, :].float()
+        action = action[:, 0, :].float()
         state = state.to(device)
         action = action.to(device)
         reward = reward.to(device)
@@ -182,49 +169,89 @@ class DDPG(nn.Module):
         return value_loss, policy_loss
 
 
-
 # weights_ae = # add string
 # weights_gen = # add string
 # weight_disc = # add string
+split = 1
 
+autoencoder = AutoEncoder(
+    encoder_dimensions=[3, 64, 128, 256, 128],
+    decoder_dimensions=[128, 256, 256, 3],
+    num_points=2048,
+    split=1,
+)
+# autoencoder.load_from_checkpoint("path/to/autoencoder/checckpoint.ckpt")
 
-autoencoder = # AutoEncoder(2048).to(device) Add our autoencoder
-autoencoder.load_state_dict(torch.load(weights_ae))
+gan = GAN(
+    z_dim=32,
+    generator_dimensions=[32, 128, 256, 256, 128],
+    critic_dimensions=[128, 128, 128, 1],
+    encoder_dimensions=[3, 64, 128, 256, 128],
+    decoder_dimensions=[128, 256, 256, 3],
+    num_points=2048,
+    split=split,
+    batch_size=8,
+)
+# gan.load_from_checkpoint("path/to/gan/checckpoint.ckpt")
 
-generator = # GenSAGAN(z_dim=z_dim).to(device) # Add our GAN
-generator.load_state_dict(torch.load(weights_gen))
+# gan.generator
+# gan.critic
 
-discriminator = # DiscSAGAN().to(device) # Add ours
-discriminator.load_state_dict(torch.load(weight_disc))
 
 ddpg = DDPG(max_action).to(device)
 
 
-# autoencoder.eval() # to be checked
-# generator.eval()
-# discriminator.eval()
+autoencoder.eval()  # to be checked
+gan.eval()
 
 
 # # Dataloader
-# train_dataset = PointcloudDatasetNoisy(DATA_DIR, X_train) # use our data
-train_dataloader = DataLoader(train_dataset, num_workers=0, shuffle=True, batch_size=1)
+batch_size = ...
+
+num_workers = os.cpu_count()
+train_dataset = DentalArchesDataset(
+    csv_filepath=f"data/kfold_split/split_{split}_train.csv",
+    context_directory="data/preprocessed_partitions",
+    opposing_directory="data/opposing_partitions",
+    crown_directory="data/crowns",
+    num_points=2048,
+)
+
+train_dataloader = DataLoader(
+    train_dataset,
+    shuffle=True,
+    batch_size=batch_size,
+    num_workers=num_workers,
+    pin_memory=True,
+    persistent_workers=num_workers > 0,
+)
+
+test_dataset = DentalArchesDataset(
+    csv_filepath=f"data/kfold_split/split_{split}_val.csv",
+    context_directory="data/preprocessed_partitions",
+    opposing_directory="data/opposing_partitions",
+    crown_directory="data/crowns",
+    num_points=2048,
+)
+
+test_dataloader = DataLoader(
+    test_dataset,
+    shuffle=True,
+    batch_size=batch_size,
+    num_workers=num_workers,
+    pin_memory=True,
+    persistent_workers=num_workers > 0,
+)
+
 train_loader_iterator = iter(train_dataloader)
-
-# test_dataset = PointcloudDatasetNoisy(DATA_DIR, X_test) # use our data
-test_dataloader = DataLoader(test_dataset, num_workers=0, shuffle=True, batch_size=1)
 test_loader_iterator = iter(test_dataloader)
-
-for i, data in enumerate(train_dataloader):
-    data = data.permute([0,2,1])
-    print(data.shape)
-    break
 
 
 # # RL Agent Training
 # to be checked
 
 ROOT_DIR = './rl_out_no_def/'
-now =   str(datetime.datetime.now())+'_start_4_max_2_f'
+now = str(datetime.datetime.now())+'_start_4_max_2_f'
 
 if not os.path.exists(ROOT_DIR):
     os.makedirs(ROOT_DIR)
@@ -236,7 +263,7 @@ LOG_DIR = ROOT_DIR + now + '/logs/'
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
-OUTPUTS_DIR = ROOT_DIR  + now + '/outputs/'
+OUTPUTS_DIR = ROOT_DIR + now + '/outputs/'
 if not os.path.exists(OUTPUTS_DIR):
     os.makedirs(OUTPUTS_DIR)
 
@@ -246,22 +273,17 @@ if not os.path.exists(MODEL_DIR):
 
 summary_writer = SummaryWriter(LOG_DIR)
 
-
-# chamferloss = ChamferLoss(2048).to(device)
-
-
-for tsteps in range(0,int(max_steps)):
+for tsteps in range(0, int(max_steps)):
     try:
-        data = next(train_loader_iterator) # from Zack
+        data = next(train_loader_iterator)
     except StopIteration:
         train_loader_iterator = iter(train_dataloader)
         data = next(train_loader_iterator)
-    data = data.permute([0,2,1]).float().to(device)
             
     if tsteps != 0:
         losses = ddpg()
             
-    state_t = # autoencoder.encode(data) # import from AE
+    state_t = autoencoder.encoder(data)
     
     if tsteps < start_time:
         action_t = -2 * max_action * torch.rand(1, z_dim) + max_action
@@ -269,57 +291,57 @@ for tsteps in range(0,int(max_steps)):
     else:
         action_t = (ddpg.get_optimal_action(state_t).detach() + 0.1 * torch.randn(1, z_dim).to(device)).clamp(-max_action, max_action)
 
-    next_state, _ = # generator(action_t) # to be used from pretrained gan
+    next_state = gan.generator(action_t)
     
     reward_gfv = -F.mse_loss(next_state, state_t)
-    reward_chamfer = # -chamferloss(autoencoder.decode(next_state), autoencoder.decode(state_t)) # to be imported
-    reward_disc, _ = # discriminator(next_state) # to be imported
+    reward_chamfer = -chamfer_loss(autoencoder.decoder(next_state), autoencoder.decoder(state_t))
+    reward_disc, _ = gan.critic(next_state)
     reward_disc = torch.mean(reward_disc)
     reward = reward_gfv * 0.1 + reward_chamfer * 5.0 + reward_disc * 0.1 + (-torch.norm(action_t)) * 0.1
     ddpg.replay_buffer.add_to_buffer(state_t, action_t, reward, next_state)
 
     if tsteps % 10:
         print('Iter : {}, Reward : {:.4f}, GFV: {:.4f}, Chamfer: {:.4f}, Disc: {:.4f}, Action: {}'.format(tsteps, reward, reward_gfv, reward_chamfer, reward_disc, action_t))
-    
+
     summary_writer.add_scalar('train total reward', reward)
     summary_writer.add_scalar('train gfv rewards', reward_gfv)
     summary_writer.add_scalar('train reward_chamfer', reward_chamfer)
     summary_writer.add_scalar('train reward_disc', reward_disc)
 
     # if tsteps % 1 == 0 and tsteps > start_time:
-    if tsteps % 1000 <= 10 and tsteps > start_time:
-        optimal_action = ddpg.get_optimal_action(state_t).detach()
-        new_state, _ = # generator(optimal_action) # to be used from pretrained gan
-        
-        out_data = # autoencoder.decode(new_state) # c
-
-        output = out_data[0,:,:]
-        output = output.permute([1,0]).detach().cpu().numpy()
-
-        fig = plt.figure()
-        ax_x = fig.add_subplot(111, projection='3d')
-        x_ = output
-        ax_x.scatter(x_[:, 0], x_[:, 1], x_[:,2])
-        ax_x.set_xlim([0,1])
-        ax_x.set_ylim([0,1])
-        ax_x.set_zlim([0,1])
-        fig.savefig(OUTPUTS_DIR+'/{}_{}_{}.png'.format(tsteps, i, 'val_out'))
-
-        output = # autoencoder.decode(state_t) # generator
-        output = output[0,:,:]
-        output = output.permute([1,0]).detach().cpu().numpy()
-
-        fig = plt.figure()
-        ax_x = fig.add_subplot(111, projection='3d')
-        x_ = output
-        ax_x.scatter(x_[:, 0], x_[:, 1], x_[:,2])
-        ax_x.set_xlim([0,1])
-        ax_x.set_ylim([0,1])
-        ax_x.set_zlim([0,1])
-        fig.savefig(OUTPUTS_DIR+'/{}_{}_{}.png'.format(tsteps, i, 'val_in'))
-
-        plt.close('all')
-
-        torch.save(ddpg.state_dict(), MODEL_DIR+'{}_ddpg_.pt'.format(tsteps))
+    # if tsteps % 1000 <= 10 and tsteps > start_time:
+    #     optimal_action = ddpg.get_optimal_action(state_t).detach()
+    #     new_state, _ = gan.generator(optimal_action) # to be used from pretrained gan
+    #
+    #     out_data = autoencoder.decoder(new_state) # c
+    #
+    #     output = out_data[0,:,:]
+    #     output = output.permute([1,0]).detach().cpu().numpy()
+    #
+    #     fig = plt.figure()
+    #     ax_x = fig.add_subplot(111, projection='3d')
+    #     x_ = output
+    #     ax_x.scatter(x_[:, 0], x_[:, 1], x_[:,2])
+    #     ax_x.set_xlim([0,1])
+    #     ax_x.set_ylim([0,1])
+    #     ax_x.set_zlim([0,1])
+    #     fig.savefig(OUTPUTS_DIR+'/{}_{}_{}.png'.format(tsteps, i, 'val_out'))
+    #
+    #     output = autoencoder.decoder(state_t) # generator
+    #     output = output[0,:,:]
+    #     output = output.permute([1,0]).detach().cpu().numpy()
+    #
+    #     fig = plt.figure()
+    #     ax_x = fig.add_subplot(111, projection='3d')
+    #     x_ = output
+    #     ax_x.scatter(x_[:, 0], x_[:, 1], x_[:,2])
+    #     ax_x.set_xlim([0,1])
+    #     ax_x.set_ylim([0,1])
+    #     ax_x.set_zlim([0,1])
+    #     fig.savefig(OUTPUTS_DIR+'/{}_{}_{}.png'.format(tsteps, i, 'val_in'))
+    #
+    #     plt.close('all')
+    #
+    #     torch.save(ddpg.state_dict(), MODEL_DIR+'{}_ddpg_.pt'.format(tsteps))
     
 torch.save(ddpg.state_dict(), MODEL_DIR+'{}_ddpg_.pt'.format('final'))
