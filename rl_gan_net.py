@@ -25,7 +25,7 @@ batch_size_actor = 100
 #start_time = 1e3
 start_time = 5
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.('cuda' if torch.cuda.is_available() else 'cpu')
 torch.manual_seed(15)
 
 
