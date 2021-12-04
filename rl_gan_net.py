@@ -253,7 +253,7 @@ test_loader_iterator = iter(test_dataloader)
 # # RL Agent Training
 # to be checked
 
-ROOT_DIR = './rl_out_no_def/'
+ROOT_DIR = './results/'
 #now = '_start_4_max_2_f'
 now=''
 #str(datetime.datetime.now())+
