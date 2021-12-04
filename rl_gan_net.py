@@ -1,7 +1,7 @@
 import os
 import torch
 import random
-import datetime
+from datetime import datetime
 
 import numpy as np
 import torch.nn as nn
@@ -255,7 +255,8 @@ test_loader_iterator = iter(test_dataloader)
 
 ROOT_DIR = './results/'
 #now = '_start_4_max_2_f'
-now=''
+now = "{:%Y_%m_%d_%H_%M_%S}".format(datetime.now())
+
 #str(datetime.datetime.now())+
 if not os.path.exists(ROOT_DIR):
     os.makedirs(ROOT_DIR)
