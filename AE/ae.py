@@ -78,14 +78,17 @@ class AutoEncoder(nn.Module):
         return out, gfv
 
 
-def chamfer_loss(predicted_clouds: torch.Tensor, target_clouds: torch.Tensor) -> torch.Tensor:
+def chamfer_loss(predicted_clouds: torch.Tensor, target_clouds: torch.Tensor, reduction: str = "mean") -> torch.Tensor:
     """Expects tensors of shape (batch_size, 3, num_points).
     """
+    if reduction not in ("mean", "none"):
+        raise ValueError(f"Reduction type must be either 'mean' or 'none', but received {reduction}")
+
     z1, _ = torch.min(torch.norm(target_clouds.unsqueeze(-2) - predicted_clouds.unsqueeze(-1), dim=1), dim=-2)
-    loss = z1.sum() / (len(target_clouds) * target_clouds.size(-1))
+    loss = z1.mean() if reduction == "mean" else z1.mean(dim=-1, keepdim=True)
 
     z_2, _ = torch.min(torch.norm(predicted_clouds.unsqueeze(-2) - target_clouds.unsqueeze(-1), dim=1), dim=-2)
-    loss += z_2.sum() / (len(target_clouds) * target_clouds.size(-1))
+    loss += z_2.mean() if reduction == "mean" else z_2.mean(dim=-1, keepdim=True)
     return loss
 
 
