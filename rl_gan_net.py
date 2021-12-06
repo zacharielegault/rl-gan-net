@@ -14,7 +14,7 @@ from torch.utils.data import Dataset, DataLoader
 from dataset import DentalArchesDataset
 from AE.pl_ae import AutoEncoder
 from AE.ae import chamfer_loss
-from GAN.pl_gan import GAN
+from GAN.gan import GAN
 
 
 class ReplayBuffer:
