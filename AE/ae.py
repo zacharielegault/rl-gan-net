@@ -1,12 +1,90 @@
 from typing import Sequence, Tuple
 import os
 import torch
-import datetime
-import torch.nn as nn
-from torch.utils.tensorboard import SummaryWriter
+from torch import nn
 from torch.utils.data import DataLoader
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from dataset import DentalArchesDataset
+
+
+class AutoEncoder(pl.LightningModule):
+    def __init__(
+            self,
+            encoder_dimensions: Sequence[int],
+            decoder_dimensions: Sequence[int],
+            num_points: int,
+            split: int,
+            batch_size: int = 1,
+    ):
+        self.save_hyperparameters()
+        super().__init__()
+        self.encoder = Encoder(encoder_dimensions)
+        self.decoder = Decoder(decoder_dimensions, num_points)
+        self.split = split
+        self.batch_size = batch_size
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Expects tensor of shape (batch_size, 3, num_points).
+        """
+        gfv = self.encoder(x)
+        out = self.decoder(gfv)
+
+        return out, gfv
+
+    def training_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
+        input_clouds, target_clouds = batch
+        predicted_clouds = self.decoder(self.encoder(input_clouds))
+        loss = chamfer_loss(predicted_clouds, target_clouds)
+        self.log("loss/train", loss, on_step=False, on_epoch=True)
+        return loss
+
+    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
+        loss = self.training_step(batch, batch_idx)
+        self.log("loss/val", loss, on_step=False, on_epoch=True)
+        return loss
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=0.02)
+
+    def train_dataloader(self):
+        num_workers = os.cpu_count()
+        train_dataset = DentalArchesDataset(
+            csv_filepath=f"data/kfold_split/split_{self.split}_train.csv",
+            context_directory="data/preprocessed_partitions",
+            opposing_directory="data/opposing_partitions",
+            crown_directory="data/crowns",
+            num_points=2048,
+        )
+
+        return DataLoader(
+            train_dataset,
+            shuffle=True,
+            batch_size=self.batch_size,
+            num_workers=num_workers,
+            pin_memory=True,
+            persistent_workers=num_workers > 0,
+        )
+
+    def val_dataloader(self):
+        num_workers = os.cpu_count()
+        val_dataset = DentalArchesDataset(
+                csv_filepath=f"data/kfold_split/split_{self.split}_val.csv",
+                context_directory="data/preprocessed_partitions",
+                opposing_directory="data/opposing_partitions",
+                crown_directory="data/crowns",
+                num_points=2048,
+        )
+
+        return DataLoader(
+            val_dataset,
+            shuffle=False,
+            batch_size=self.batch_size,
+            num_workers=num_workers,
+            pin_memory=True,
+            persistent_workers=num_workers > 0,
+        )
 
 
 class Encoder(nn.Module):
@@ -25,7 +103,7 @@ class Encoder(nn.Module):
                 layers.append(nn.AdaptiveMaxPool1d(1))
 
         self.net = nn.Sequential(*layers)
-        
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Expects tensor of shape (batch_size, 3, num_points).
         """
@@ -49,33 +127,12 @@ class Decoder(nn.Module):
 
         self.output_dim = dimensions[-1]
         self.num_points = num_points
-        
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Expects tensor of shape (batch_size, 3, dimensions[0]).
         """
         pointclouds = self.net(x)
         return pointclouds.view(-1, self.output_dim, self.num_points)
-
-
-class AutoEncoder(nn.Module):
-    # AutoEncoder([3, 64, 128, 256, 128], [128, 256, 256, 3], 2048)
-    def __init__(
-        self,
-        encoder_dimensions: Sequence[int],
-        decoder_dimensions: Sequence[int],
-        num_points: int,
-    ):
-        super().__init__()
-        self.encoder = Encoder(encoder_dimensions)
-        self.decoder = Decoder(decoder_dimensions, num_points)
-        
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Expects tensor of shape (batch_size, 3, num_points).
-        """
-        gfv = self.encoder(x)
-        out = self.decoder(gfv)
-        
-        return out, gfv
 
 
 def chamfer_loss(predicted_clouds: torch.Tensor, target_clouds: torch.Tensor, reduction: str = "mean") -> torch.Tensor:
@@ -93,105 +150,23 @@ def chamfer_loss(predicted_clouds: torch.Tensor, target_clouds: torch.Tensor, re
 
 
 def main():
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    num_workers = os.cpu_count()
     split = 1
-
-    train_dataset = DentalArchesDataset(
-        csv_filepath=f"data/kfold_split/split_{split}_train.csv",
-        context_directory="data/preprocessed_partitions",
-        opposing_directory="data/opposing_partitions",
-        crown_directory="data/crowns",
-        num_points=2048,
+    model = AutoEncoder([3, 64, 128, 256, 128], [128, 256, 256, 3], 2048, split)
+    trainer = pl.Trainer(
+        gpus=1,
+        max_epochs=10000,
+        log_every_n_steps=1,
+        precision=16,
+        auto_scale_batch_size="binsearch",
+        default_root_dir="AE",
+        callbacks=[
+            ModelCheckpoint(monitor="loss/val", verbose=True),
+            EarlyStopping(monitor="loss/val", patience=500, verbose=True)
+        ]
     )
 
-    val_dataset = DentalArchesDataset(
-        csv_filepath=f"data/kfold_split/split_{split}_val.csv",
-        context_directory="data/preprocessed_partitions",
-        opposing_directory="data/opposing_partitions",
-        crown_directory="data/crowns",
-        num_points=2048,
-    )
-
-    train_dataloader = DataLoader(
-        train_dataset,
-        shuffle=True,
-        batch_size=24,
-        num_workers=num_workers,
-        pin_memory=True,
-        persistent_workers=num_workers > 0,
-    )
-
-    val_dataloader = DataLoader(
-        val_dataset,
-        shuffle=False,
-        batch_size=1,
-        num_workers=num_workers,
-        pin_memory=True,
-        persistent_workers=num_workers > 0,
-    )
-
-    autoencoder = AutoEncoder([3, 64, 128, 256, 128], [128, 256, 256, 3], 2048).to(device)
-
-    ROOT_DIR = './autoencoder_training/'
-    now = str(datetime.datetime.now())
-
-    if not os.path.exists(ROOT_DIR):
-        os.makedirs(ROOT_DIR)
-
-    if not os.path.exists(ROOT_DIR + now):
-        os.makedirs(ROOT_DIR + now)
-
-    LOG_DIR = ROOT_DIR + now + '/logs/'
-    if not os.path.exists(LOG_DIR):
-        os.makedirs(LOG_DIR)
-
-    OUTPUTS_DIR = ROOT_DIR + now + '/outputs/'
-    if not os.path.exists(OUTPUTS_DIR):
-        os.makedirs(OUTPUTS_DIR)
-
-    MODEL_DIR = ROOT_DIR + now + '/models/'
-    if not os.path.exists(MODEL_DIR):
-        os.makedirs(MODEL_DIR)
-
-    summary_writer = SummaryWriter(LOG_DIR)
-    print(f"Tensorbord logdir: {LOG_DIR}")
-
-    lr = 1.0e-4
-    momentum = 0.95
-    epochs = 1000
-    optimizer = torch.optim.Adam(autoencoder.parameters(), lr=lr, betas=(momentum, 0.999))
-
-    for epoch in range(epochs):
-        # Training loop
-        autoencoder.train()
-        cum_train_loss = 0
-        for i, (input_clouds, target_clouds) in enumerate(train_dataloader):
-            input_clouds = input_clouds.to(device)
-            target_clouds = target_clouds.to(device)
-            optimizer.zero_grad()
-            predicted_clouds, gfv = autoencoder(input_clouds)
-            loss = chamfer_loss(predicted_clouds, target_clouds)
-            loss.backward()
-            optimizer.step()
-
-            cum_train_loss += loss * train_dataloader.batch_size
-
-        summary_writer.add_scalar('Train loss', cum_train_loss / len(train_dataset), epoch)
-
-        # Validation loop
-        autoencoder.eval()
-        cum_val_loss = 0
-        for i, (input_clouds, target_clouds) in enumerate(val_dataloader):
-            with torch.no_grad():
-                input_clouds = input_clouds.to(device)
-                target_clouds = target_clouds.to(device)
-                predicted_clouds, gfv = autoencoder(input_clouds)
-                loss = chamfer_loss(predicted_clouds, target_clouds)
-
-                cum_val_loss += loss * val_dataloader.batch_size
-
-        summary_writer.add_scalar('Val loss', cum_val_loss / len(val_dataset), epoch)
+    trainer.tune(model)
+    trainer.fit(model)
 
 
 if __name__ == "__main__":

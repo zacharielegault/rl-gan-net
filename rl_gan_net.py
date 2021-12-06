@@ -12,8 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset, DataLoader
 
 from dataset import DentalArchesDataset
-from AE.pl_ae import AutoEncoder
-from AE.ae import chamfer_loss
+from AE.ae import AutoEncoder, chamfer_loss
 from GAN.gan import GAN
 
 

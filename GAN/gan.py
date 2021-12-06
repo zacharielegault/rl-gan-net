@@ -8,7 +8,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from dataset import DentalArchesDataset
-from AE.pl_ae import AutoEncoder
+from AE.ae import AutoEncoder
 
 
 class GAN(pl.LightningModule):
