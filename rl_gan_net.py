@@ -171,9 +171,6 @@ def main():
     ).to(device)
     # gan.load_from_checkpoint("path/to/gan/checckpoint.ckpt")
 
-    # gan.generator
-    # gan.critic
-
     ddpg = DDPG(max_action, z_dim, replay_buffer_device=device).to(device)
 
     autoencoder.eval()  # to be checked
