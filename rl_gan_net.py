@@ -104,50 +104,97 @@ class ActorNet(nn.Module):
 
 
 class DDPG(nn.Module):
-    def __init__(self, max_action: float, z_dim: int, replay_buffer_device: Optional[torch.device] = None):
+    def __init__(
+            self,
+            max_action: float,
+            gfv_dim: int,
+            z_dim: int,
+            w_gfv: float,
+            w_chamfer: float,
+            w_disc: float,
+            regularization: float,
+            start_time: int,
+            replay_buffer_capacity: int,
+            replay_buffer_device: Optional[torch.device] = None
+    ):
         super().__init__()
-        self.actor = ActorNet(128, z_dim, max_action)
-        self.critic = CriticNet(128, z_dim)
+        self.actor = ActorNet(gfv_dim, z_dim, max_action)
+        self.critic = CriticNet(gfv_dim, z_dim)
         
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters())
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters())
 
-        self.replay_buffer = ReplayBuffer(int(1e6), replay_buffer_device)
+        self.replay_buffer = ReplayBuffer(replay_buffer_capacity, replay_buffer_device)
 
-    def forward(self, batch_size: int):
+        self.w_gfv = w_gfv
+        self.w_chamfer = w_chamfer
+        self.w_disc = w_disc
+        self.regularization = regularization
+        self.start_time = start_time
+
+    def forward(self, x: torch.Tensor):
+        return self.actor(x)
+
+    def training_step(self, batch_size: int):
         state, action, reward, next_state = self.replay_buffer.get_batch(batch_size)
-        
-        target_q = reward
 
-        q_batch = self.critic(state, action)
-
+        # Critic
         self.critic_optimizer.zero_grad()
-
-        value_loss = F.mse_loss(q_batch, target_q)
+        value_loss = F.mse_loss(self.critic(state, action), reward)
         value_loss.backward()
-        
-        self.critic_optimizer.step() 
+        self.critic_optimizer.step()
 
+        # Actor
         self.actor_optimizer.zero_grad()
-
         policy_loss = - self.critic(state, self.actor(state)).mean()
         policy_loss.backward()
-        
         self.actor_optimizer.step()
 
         return value_loss, policy_loss
+
+    @torch.no_grad()
+    def generate_examples(self, step: int, input_clouds, autoencoder: AutoEncoder, gan: GAN, device: Optional[torch.device]) -> Dict[str, torch.Tensor]:
+        state_t = autoencoder.encoder(input_clouds.to(device))
+
+        if step < self.start_time:
+            # Generate random actions to fill buffer during warmup period
+            action_t = -2 * self.actor.max_action * torch.rand(state_t.size(0), self.actor.z_dim) + self.actor.max_action
+            action_t = action_t.to(device)
+        else:
+            action_t = (self.actor(state_t).detach() + 0.1 * torch.randn(state_t.size(0), self.actor.z_dim).to(device)).clamp(-self.actor.max_action, self.actor.max_action)
+
+        next_state = gan.generator(action_t)
+        reward_gfv = -torch.mean(torch.pow(next_state - state_t, 2), dim=-1, keepdim=True)
+        reward_chamfer = -chamfer_loss(autoencoder.decoder(next_state), autoencoder.decoder(state_t), reduction="none")
+        reward_disc = -gan.critic(next_state)
+        reward = reward_gfv * self.w_gfv \
+            + reward_chamfer * self.w_chamfer \
+            + reward_disc * self.w_disc \
+            + (-torch.norm(action_t, dim=-1, keepdim=True)) * self.regularization
+        self.replay_buffer.add_to_buffer(state_t, action_t, reward, next_state)
+
+        return {"total": reward, "gfv": reward_gfv, "chamfer": reward_chamfer, "disc": reward_disc}
+
+    def to(self, device: torch.device):
+        self.replay_buffer.device = device
+        return super().to(device)
 
 
 def main():
     # Parameters
     max_action = 2
+    gfv_dim = 128
     z_dim = 32
     max_steps, start_time = 1e6, 1e3
-    # max_steps, start_time = 10, 5
     batch_size_actor = 100
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(15)
+
+    w_gfv = 0.1
+    w_chamfer = 5.0
+    w_disc = 0.1
+    regularization = 0.1
 
     split = 1
 
@@ -157,7 +204,7 @@ def main():
         num_points=2048,
         split=1,
     ).to(device)
-    # autoencoder.load_from_checkpoint("path/to/autoencoder/checckpoint.ckpt")
+    autoencoder.load_from_checkpoint("lightning_logs/version_4/checkpoints/epoch=2182-step=10914.ckpt")
 
     gan = GAN(
         z_dim=32,
@@ -167,11 +214,20 @@ def main():
         decoder_dimensions=[128, 256, 256, 3],
         num_points=2048,
         split=split,
-        batch_size=8,
     ).to(device)
-    # gan.load_from_checkpoint("path/to/gan/checckpoint.ckpt")
+    gan.load_from_checkpoint("lightning_logs/version_12/checkpoints/epoch=393-step=3939.ckpt")
 
-    ddpg = DDPG(max_action, z_dim, replay_buffer_device=device).to(device)
+    ddpg = DDPG(
+        max_action=max_action,
+        gfv_dim=gfv_dim,
+        z_dim=z_dim,
+        w_gfv=w_gfv,
+        w_chamfer=w_chamfer,
+        w_disc=w_disc,
+        regularization=regularization,
+        start_time=int(start_time),
+        replay_buffer_capacity=int(1e6),
+    ).to(device)
 
     autoencoder.eval()  # to be checked
     gan.eval()
@@ -198,25 +254,7 @@ def main():
         persistent_workers=num_workers > 0,
     )
 
-    test_dataset = DentalArchesDataset(
-        csv_filepath=f"data/kfold_split/split_{split}_val.csv",
-        context_directory="data/preprocessed_partitions",
-        opposing_directory="data/opposing_partitions",
-        crown_directory="data/crowns",
-        num_points=2048,
-    )
-
-    test_dataloader = DataLoader(
-        test_dataset,
-        shuffle=True,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        pin_memory=True,
-        persistent_workers=num_workers > 0,
-    )
-
     train_loader_iterator = iter(train_dataloader)
-    test_loader_iterator = iter(test_dataloader)
 
     ROOT_DIR = './results/'
     now = "{:%Y_%m_%d_%H_%M_%S}".format(datetime.now())
@@ -249,47 +287,31 @@ def main():
             data = next(train_loader_iterator)
 
         if tsteps != 0:  # Skip the first iteration, start filling the replay buffer first
-            losses = ddpg(batch_size_actor)
+            ddpg.training_step(batch_size_actor)
 
         # Fill replay buffer
-        input_clouds, output_clouds = data
-        input_clouds = input_clouds.to(device)
-        output_clouds = output_clouds.to(device)
-        state_t = autoencoder.encoder(input_clouds)
-
-        if tsteps < start_time:
-            # Generate random actions to fill buffer during warmup period
-            action_t = -2 * max_action * torch.rand(state_t.size(0), z_dim) + max_action
-            action_t = action_t.to(device)
-        else:
-            action_t = (ddpg.actor(state_t).detach() + 0.1 * torch.randn(state_t.size(0), z_dim).to(device)).clamp(-max_action, max_action)
-            action_t.to(device)
-
-        next_state = gan.generator(action_t)
-
-        reward_gfv = -torch.mean(torch.pow(next_state - state_t, 2), dim=-1, keepdim=True)
-        reward_chamfer = -chamfer_loss(autoencoder.decoder(next_state), autoencoder.decoder(state_t), reduction="none")
-        reward_disc = -gan.critic(next_state)
-        reward = reward_gfv * 0.1 + reward_chamfer * 5.0 + reward_disc * 0.1 + (-torch.norm(action_t, dim=-1, keepdim=True)) * 0.1
-        ddpg.replay_buffer.add_to_buffer(state_t, action_t, reward, next_state)
+        input_clouds, _ = data
+        reward = ddpg.generate_examples(tsteps, input_clouds, autoencoder, gan, device)
 
         # Logging
         if tsteps % 10:
             print(
                 f'Iter : {tsteps}, '
-                f'Reward : {reward.mean():.4f}, '
-                f'GFV: {reward_gfv.mean():.4f}, '
-                f'Chamfer: {reward_chamfer.mean():.4f}, '
-                f'Disc: {reward_disc.mean():.4f}'
+                f'Reward : {reward["total"].mean():.4f}, '
+                f'GFV: {reward["gfv"].mean():.4f}, '
+                f'Chamfer: {reward["chamfer"].mean():.4f}, '
+                f'Disc: {reward["disc"].mean():.4f}'
             )
 
-        summary_writer.add_scalar('train total mean reward', reward.mean(), tsteps)
-        summary_writer.add_scalar('train gfv mean rewards', reward_gfv.mean(), tsteps)
-        summary_writer.add_scalar('train mean reward_chamfer', reward_chamfer.mean(), tsteps)
-        summary_writer.add_scalar('train mean reward_disc', reward_disc.mean(), tsteps)
+        summary_writer.add_scalar('train total mean reward', reward["total"].mean(), tsteps)
+        summary_writer.add_scalar('train gfv mean rewards', reward["gfv"].mean(), tsteps)
+        summary_writer.add_scalar('train mean reward_chamfer', reward["chamfer"].mean(), tsteps)
+        summary_writer.add_scalar('train mean reward_disc', reward["disc"].mean(), tsteps)
 
         if tsteps % 1 == 0 and tsteps > start_time:
             if tsteps % 1000 <= 10 and tsteps > start_time:
+                state_t = autoencoder.encoder(input_clouds.to(device))
+
                 optimal_action = ddpg.actor(state_t).detach()
                 new_state = gan.generator(optimal_action)
 
