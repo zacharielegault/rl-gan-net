@@ -1,0 +1,9 @@
+z_dim: 32
+generator_dimensions: [32, 128, 256, 256, 128]
+critic_dimensions: [128, 128, 128, 1]
+encoder_dimensions: [3, 64, 128, 256, 128]
+decoder_dimensions: [128, 256, 256, 3]
+num_points: 2048
+autoencoder_checkpoint: "lightning_logs/version_4/checkpoints/epoch=2182-step=10914.ckpt"
+split: split
+batch_size: 8
