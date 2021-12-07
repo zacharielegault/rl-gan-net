@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict
 import os
 import torch
 import random
@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 
 from dataset import DentalArchesDataset
 from AE.ae import AutoEncoder, chamfer_loss
@@ -18,8 +18,8 @@ from GAN.gan import GAN
 
 
 class ReplayBuffer:
-    def __init__(self, size: int, device: Optional[torch.device] = None):
-        self.episodes = deque(maxlen=size)
+    def __init__(self, capacity: int, device: Optional[torch.device] = None):
+        self.episodes = deque(maxlen=capacity)
         self.device = device
 
     def add_to_buffer(self, state: torch.Tensor, action: torch.Tensor, reward: torch.Tensor, next_state: torch.Tensor):
@@ -48,14 +48,14 @@ class ReplayBuffer:
 
 
 class CriticNet(nn.Module):
-    def __init__(self, state_dim: int, z_shape: int):
+    def __init__(self, gfv_dim: int, z_dim: int):
         super().__init__()
-        self.state_dim = state_dim
-        self.num_actions = z_shape
+        self.gfv_dim = gfv_dim
+        self.z_dim = z_dim
         
-        self.linear1 = nn.Linear(self.state_dim, 400)
+        self.linear1 = nn.Linear(gfv_dim, 400)
         # self.bn1 = nn.BatchNorm1d(400)
-        self.linear2 = nn.Linear(400 + z_shape, 300)
+        self.linear2 = nn.Linear(400 + z_dim, 300)
         # self.bn2 = nn.BatchNorm1d(300)
         self.linear3 = nn.Linear(300, 300)
         self.linear4 = nn.Linear(300, 1)
@@ -74,19 +74,19 @@ class CriticNet(nn.Module):
 
 
 class ActorNet(nn.Module):
-    def __init__(self, state_dim: int,  z_shape: int, max_action: float = 10):
+    def __init__(self, gfv_dim: int, z_dim: int, max_action: float = 10):
         super().__init__()
-        self.state_dim = state_dim
-        self.num_actions = z_shape
+        self.gfv_dim = gfv_dim
+        self.z_dim = z_dim
 
-        self.linear1 = nn.Linear(self.state_dim, 400)
+        self.linear1 = nn.Linear(gfv_dim, 400)
         # self.bn1 = nn.BatchNorm1d(400)
 
         self.linear2 = nn.Linear(400, 400)
         # self.bn2 = nn.BatchNorm1d(400)
 
         self.linear3 = nn.Linear(400, 300)
-        self.linear4 = nn.Linear(300, self.num_actions)
+        self.linear4 = nn.Linear(300, z_dim)
 
         self.max_action = max_action  # Check in original paper
 
@@ -305,7 +305,7 @@ def main():
                 ax_x.set_xlim([0, 1])
                 ax_x.set_ylim([0, 1])
                 ax_x.set_zlim([0, 1])
-                fig.savefig(OUTPUTS_DIR+'/{}_{}.png'.format(tsteps, 'val_out'))
+                fig.savefig(OUTPUTS_DIR + '/{}_{}.png'.format(tsteps, 'val_out'))
 
                 output = autoencoder.decoder(state_t)  # generator
                 output = output[0, :, :]
