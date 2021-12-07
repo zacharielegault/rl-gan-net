@@ -3,6 +3,7 @@ import os
 import torch
 import random
 from datetime import datetime
+from collections import deque
 
 import torch.nn as nn
 import matplotlib.pyplot as plt
@@ -18,16 +19,11 @@ from GAN.gan import GAN
 
 class ReplayBuffer:
     def __init__(self, size: int, device: Optional[torch.device] = None):
-        self.episodes = []
-        self.buffer_size = size
+        self.episodes = deque(maxlen=size)
         self.device = device
 
     def add_to_buffer(self, state: torch.Tensor, action: torch.Tensor, reward: torch.Tensor, next_state: torch.Tensor):
         """All tensors are expected to be batched, i.e. with shape (batch_size, ...)."""
-        batch_size = state.size(0)
-        if len(self.episodes) == self.buffer_size:
-            self.episodes = self.episodes[batch_size:]
-
         self.episodes.extend([(s, a, r, s_) for s, a, r, s_ in zip(state.detach().cpu(), action.detach().cpu(), reward.detach().cpu(), next_state.detach().cpu())])
 
     def get_batch(self, batch_size: int):
@@ -248,14 +244,14 @@ def main():
 
     summary_writer = SummaryWriter(LOG_DIR)
 
-    for tsteps in range(0, int(max_steps)):
+    for tsteps in range(int(max_steps)):
         try:
             data = next(train_loader_iterator)
         except StopIteration:
             train_loader_iterator = iter(train_dataloader)
             data = next(train_loader_iterator)
 
-        if tsteps != 0:
+        if tsteps != 0:  # Skip the first iteration, start filling the replay buffer first
             losses = ddpg(batch_size_actor)
 
         # Fill replay buffer
@@ -265,6 +261,7 @@ def main():
         state_t = autoencoder.encoder(input_clouds)
 
         if tsteps < start_time:
+            # Generate random actions to fill buffer during warmup period
             action_t = -2 * max_action * torch.rand(state_t.size(0), z_dim) + max_action
             action_t = action_t.to(device)
         else:
@@ -276,7 +273,6 @@ def main():
         reward_gfv = -torch.mean(torch.pow(next_state - state_t, 2), dim=-1, keepdim=True)
         reward_chamfer = -chamfer_loss(autoencoder.decoder(next_state), autoencoder.decoder(state_t), reduction="none")
         reward_disc = -gan.critic(next_state)
-        # reward_disc = torch.mean(reward_disc)
         reward = reward_gfv * 0.1 + reward_chamfer * 5.0 + reward_disc * 0.1 + (-torch.norm(action_t, dim=-1, keepdim=True)) * 0.1
         ddpg.replay_buffer.add_to_buffer(state_t, action_t, reward, next_state)
 
