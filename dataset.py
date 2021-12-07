@@ -41,7 +41,7 @@ class DentalArchesDataset(Dataset):
         target_cloud = target_cloud[np.random.choice(len(target_cloud), self.num_points, replace=False)]
 
         # Swap axes to have channels dimension first
-        input_cloud = np.swapaxes(input_cloud, -1, -2)
+        input_cloud = np.swapaxes(input_cloud, -1, -2)  # (3, num_point)
         target_cloud = np.swapaxes(target_cloud, -1, -2)
 
         return torch.from_numpy(input_cloud), torch.from_numpy(target_cloud)
@@ -63,3 +63,10 @@ def read_pointcloud(ply_file_path: str, subsample: Optional[int] = None, dtype: 
 
     return cloud
 
+
+def write_pointcloud(points: np.ndarray, ply_file_path: str) -> None:
+    """Expects array with shape (n_points, 3)
+    """
+    pointcloud = o3d.geometry.PointCloud()
+    pointcloud.points = o3d.utility.Vector3dVector(points)
+    o3d.io.write_point_cloud(ply_file_path, pointcloud)
