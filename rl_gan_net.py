@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from typing import Optional, Dict
 import os
 import torch
@@ -15,6 +16,7 @@ from torch.utils.data import DataLoader
 from dataset import DentalArchesDataset
 from AE.ae import AutoEncoder, chamfer_loss
 from GAN.gan import GAN
+from utils import dict_to_namespace
 
 
 class ReplayBuffer:
@@ -180,75 +182,58 @@ class DDPG(nn.Module):
         return super().to(device)
 
 
-def main():
-    # Parameters
-    max_action = 2
-    gfv_dim = 128
-    z_dim = 32
-    max_steps, start_time = 1e6, 1e3
-    batch_size_actor = 100
-
+def main(config: SimpleNamespace):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(15)
 
-    w_gfv = 0.1
-    w_chamfer = 5.0
-    w_disc = 0.1
-    regularization = 0.1
-
-    split = 1
-
     autoencoder = AutoEncoder(
-        encoder_dimensions=[3, 64, 128, 256, 128],
-        decoder_dimensions=[128, 256, 256, 3],
-        num_points=2048,
-        split=1,
+        encoder_dimensions=config.autoencoder.encoder_dimensions,
+        decoder_dimensions=config.autoencoder.decoder_dimensions,
+        num_points=config.num_points,
+        split=config.split,
     ).to(device)
-    autoencoder.load_from_checkpoint("lightning_logs/version_4/checkpoints/epoch=2182-step=10914.ckpt")
+    autoencoder.load_from_checkpoint(config.autoencoder.checkpoint)
 
     gan = GAN(
         z_dim=32,
-        generator_dimensions=[32, 128, 256, 256, 128],
-        critic_dimensions=[128, 128, 128, 1],
-        encoder_dimensions=[3, 64, 128, 256, 128],
-        decoder_dimensions=[128, 256, 256, 3],
-        num_points=2048,
-        split=split,
+        generator_dimensions=config.gan.generator_dimensions,
+        critic_dimensions=config.gan.critic_dimensions,
+        encoder_dimensions=config.autoencoder.encoder_dimensions,
+        decoder_dimensions=config.autoencoder.decoder_dimensions,
+        num_points=config.num_points,
+        split=config.split,
     ).to(device)
-    gan.load_from_checkpoint("lightning_logs/version_12/checkpoints/epoch=393-step=3939.ckpt")
+    gan.load_from_checkpoint(config.gan.checkpoint)
 
     ddpg = DDPG(
-        max_action=max_action,
-        gfv_dim=gfv_dim,
-        z_dim=z_dim,
-        w_gfv=w_gfv,
-        w_chamfer=w_chamfer,
-        w_disc=w_disc,
-        regularization=regularization,
-        start_time=int(start_time),
+        max_action=config.ddpg.max_action,
+        gfv_dim=config.gfv_dim,
+        z_dim=config.z_dim,
+        w_gfv=config.ddpg.w_gfv,
+        w_chamfer=config.ddpg.w_chamfer,
+        w_disc=config.ddpg.w_disc,
+        regularization=config.ddpg.regularization,
+        start_time=int(config.ddpg.start_time),
         replay_buffer_capacity=int(1e6),
     ).to(device)
 
-    autoencoder.eval()  # to be checked
+    autoencoder.eval()
     gan.eval()
-
-    # Dataloader
-    batch_size = 10
 
     # num_workers = os.cpu_count()
     num_workers = 0
     train_dataset = DentalArchesDataset(
-        csv_filepath=f"data/kfold_split/split_{split}_train.csv",
+        csv_filepath=f"data/kfold_split/split_{config.split}_train.csv",
         context_directory="data/preprocessed_partitions",
         opposing_directory="data/opposing_partitions",
         crown_directory="data/crowns",
-        num_points=2048,
+        num_points=config.num_points,
     )
 
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=True,
-        batch_size=batch_size,
+        batch_size=1,  # RL-GAN-Net paper uses batch size of 1
         num_workers=num_workers,
         pin_memory=True,
         persistent_workers=num_workers > 0,
@@ -279,7 +264,7 @@ def main():
 
     summary_writer = SummaryWriter(LOG_DIR)
 
-    for tsteps in range(int(max_steps)):
+    for tsteps in range(int(config.ddpg.max_steps)):
         try:
             data = next(train_loader_iterator)
         except StopIteration:
@@ -287,7 +272,7 @@ def main():
             data = next(train_loader_iterator)
 
         if tsteps != 0:  # Skip the first iteration, start filling the replay buffer first
-            ddpg.training_step(batch_size_actor)
+            ddpg.training_step(config.ddpg.batch_size_actor)
 
         # Fill replay buffer
         input_clouds, _ = data
@@ -308,8 +293,8 @@ def main():
         summary_writer.add_scalar('train mean reward_chamfer', reward["chamfer"].mean(), tsteps)
         summary_writer.add_scalar('train mean reward_disc', reward["disc"].mean(), tsteps)
 
-        if tsteps % 1 == 0 and tsteps > start_time:
-            if tsteps % 1000 <= 10 and tsteps > start_time:
+        if tsteps % 1 == 0 and tsteps > config.ddpg.start_time:
+            if tsteps % 1000 <= 10 and tsteps > config.ddpg.start_time:
                 state_t = autoencoder.encoder(input_clouds.to(device))
 
                 optimal_action = ddpg.actor(state_t).detach()
@@ -350,4 +335,22 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import yaml
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+
+    config = dict_to_namespace(config)
+
+    # Check autoencoder dimensions
+    assert config.autoencoder.encoder_dimensions[0] == 3
+    assert config.autoencoder.encoder_dimensions[-1] == config.gfv_dim
+    assert config.autoencoder.decoder_dimensions[0] == config.gfv_dim
+    assert config.autoencoder.decoder_dimensions[-1] == 3
+
+    # Check GAN dimensions
+    assert config.gan.generator_dimensions[0] == config.z_dim
+    assert config.gan.generator_dimensions[-1] == config.gfv_dim
+    assert config.gan.critic_dimensions[0] == config.gfv_dim
+    assert config.gan.critic_dimensions[-1] == 1
+
+    main(config)
