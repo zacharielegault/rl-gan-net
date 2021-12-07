@@ -286,10 +286,10 @@ def main():
                 f'Disc: {reward_disc.mean():.4f}'
             )
 
-        summary_writer.add_scalar('train total mean reward', reward.mean())
-        summary_writer.add_scalar('train gfv mean rewards', reward_gfv.mean())
-        summary_writer.add_scalar('train mean reward_chamfer', reward_chamfer.mean())
-        summary_writer.add_scalar('train mean reward_disc', reward_disc.mean())
+        summary_writer.add_scalar('train total mean reward', reward.mean(), tsteps)
+        summary_writer.add_scalar('train gfv mean rewards', reward_gfv.mean(), tsteps)
+        summary_writer.add_scalar('train mean reward_chamfer', reward_chamfer.mean(), tsteps)
+        summary_writer.add_scalar('train mean reward_disc', reward_disc.mean(), tsteps)
 
         if tsteps % 1 == 0 and tsteps > start_time:
             if tsteps % 1000 <= 10 and tsteps > start_time:
