@@ -24,7 +24,7 @@ class GAN(pl.LightningModule):
             autoencoder_checkpoint: str = None,
             lambda_gp: float = 10,
             lr: float = 3e-4,
-            batch_size: int = 16,
+            batch_size: int = 1,
             critic_optimizer_frequency: int = 5,
     ):
         super().__init__()
