@@ -347,7 +347,7 @@ def main(args: argparse.Namespace):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Trains the GAN for RL-GAN-Net.")
+    parser = argparse.ArgumentParser(description="Trains the DDPG for RL-GAN-Net.")
     parser.add_argument("--config", dest="config_file", help="Path to the YAML configuration file.")
     args = parser.parse_args()
     main(args)
