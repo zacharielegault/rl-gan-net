@@ -1,3 +1,4 @@
+import argparse
 from types import SimpleNamespace
 from typing import Optional, Dict
 import os
@@ -182,7 +183,17 @@ class DDPG(nn.Module):
         return super().to(device)
 
 
-def main(config: SimpleNamespace):
+def main(args: argparse.Namespace):
+    # Load config file
+    import yaml
+    from utils import dict_to_namespace, config_is_valid
+
+    with open(args.config_file, "r") as f:
+        config = yaml.safe_load(f)
+
+    config = dict_to_namespace(config)
+    assert config_is_valid(config)
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(15)
 
@@ -336,12 +347,7 @@ def main(config: SimpleNamespace):
 
 
 if __name__ == "__main__":
-    import yaml
-    from utils import dict_to_namespace, config_is_valid
-
-    with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
-
-    config = dict_to_namespace(config)
-    assert config_is_valid(config)
-    main(config)
+    parser = argparse.ArgumentParser(description="Trains the GAN for RL-GAN-Net.")
+    parser.add_argument("--config", dest="config_file", help="Path to the YAML configuration file.")
+    args = parser.parse_args()
+    main(args)
