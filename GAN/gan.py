@@ -1,3 +1,5 @@
+import argparse
+from types import SimpleNamespace
 from typing import Optional, Sequence
 import os
 import torch
@@ -173,28 +175,42 @@ def compute_gradient_penalty(
     return gradient_penalty
 
 
-def main():
-    split = 1
+def main(args: argparse.Namespace):
+    # Load config file
+    import yaml
+    from utils import dict_to_namespace, config_is_valid
 
+    with open(args.config_file, "r") as f:
+        config = yaml.safe_load(f)
+
+    config = dict_to_namespace(config)
+    assert config_is_valid(config)
+
+    # Define model
     model = GAN(
-        z_dim=32,
-        generator_dimensions=[32, 128, 256, 256, 128],
-        critic_dimensions=[128, 128, 128, 1],
-        encoder_dimensions=[3, 64, 128, 256, 128],
-        decoder_dimensions=[128, 256, 256, 3],
-        num_points=2048,
-        autoencoder_checkpoint="lightning_logs/version_4/checkpoints/epoch=2182-step=10914.ckpt",
-        split=split,
-        batch_size=8,
+        z_dim=config.z_dim,
+        generator_dimensions=config.gan.generator_dimensions,
+        critic_dimensions=config.gan.critic_dimensions,
+        encoder_dimensions=config.autoencoder.encoder_dimensions,
+        decoder_dimensions=config.autoencoder.decoder_dimensions,
+        num_points=config.num_points,
+        autoencoder_checkpoint=config.autoencoder.checkpoint,
+        split=config.split,
+        batch_size=config.gan.batch_size,
     )
+
+    # Train model
+    checkpoint_callback = ModelCheckpoint(monitor="critic_loss", verbose=True)
+
     trainer = pl.Trainer(
-        gpus=1,
-        max_epochs=10000,
+        gpus=1 if torch.cuda.is_available() else None,
+        max_epochs=config.gan.max_epochs,
         log_every_n_steps=1,
         precision=16,
         # auto_scale_batch_size="binsearch",
+        default_root_dir="GAN",
         callbacks=[
-            ModelCheckpoint(monitor="critic_loss", verbose=True),
+            checkpoint_callback,
             EarlyStopping(monitor="critic_loss", patience=500, verbose=True)
         ]
     )
@@ -202,6 +218,22 @@ def main():
     trainer.tune(model)
     trainer.fit(model)
 
+    if args.save_checkpoint:
+        # Add checkpoint to config file
+        with open(args.config_file, "r") as f:
+            config = yaml.safe_load(f)
+
+        config["gan"]["checkpoint"] = os.path.relpath(checkpoint_callback.best_model_path, os.getcwd())
+
+        stem, ext = os.path.splitext(args.config_file)
+        with open(stem + "_gan" + ext, "w") as f:
+            yaml.safe_dump(config, f)
+
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Trains the GAN for RL-GAN-Net.")
+    parser.add_argument("--config", dest="config_file", help="Path to the YAML configuration file.")
+    parser.add_argument("--save_checkpoint", action="store_true", default=False,
+                        help="Creates a new configuration file that includes the checkpoint path of the best model.")
+    args = parser.parse_args()
+    main(args)

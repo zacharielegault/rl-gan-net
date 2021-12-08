@@ -337,21 +337,11 @@ def main(config: SimpleNamespace):
 
 if __name__ == "__main__":
     import yaml
+    from utils import dict_to_namespace, config_is_valid
+
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
     config = dict_to_namespace(config)
-
-    # Check autoencoder dimensions
-    assert config.autoencoder.encoder_dimensions[0] == 3
-    assert config.autoencoder.encoder_dimensions[-1] == config.gfv_dim
-    assert config.autoencoder.decoder_dimensions[0] == config.gfv_dim
-    assert config.autoencoder.decoder_dimensions[-1] == 3
-
-    # Check GAN dimensions
-    assert config.gan.generator_dimensions[0] == config.z_dim
-    assert config.gan.generator_dimensions[-1] == config.gfv_dim
-    assert config.gan.critic_dimensions[0] == config.gfv_dim
-    assert config.gan.critic_dimensions[-1] == 1
-
+    assert config_is_valid(config)
     main(config)

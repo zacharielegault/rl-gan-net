@@ -9,3 +9,21 @@ def dict_to_namespace(d: dict) -> SimpleNamespace:
         content[k] = dict_to_namespace(v) if isinstance(v, dict) else v
 
     return SimpleNamespace(**content)
+
+
+def config_is_valid(config: SimpleNamespace) -> bool:
+    """Check if the config is consistent.
+    """
+    return all([
+        # Check autoencoder dimensions
+        config.autoencoder.encoder_dimensions[0] == 3,
+        config.autoencoder.encoder_dimensions[-1] == config.gfv_dim,
+        config.autoencoder.decoder_dimensions[0] == config.gfv_dim,
+        config.autoencoder.decoder_dimensions[-1] == 3,
+
+        # Check GAN dimensions
+        config.gan.generator_dimensions[0] == config.z_dim,
+        config.gan.generator_dimensions[-1] == config.gfv_dim,
+        config.gan.critic_dimensions[0] == config.gfv_dim,
+        config.gan.critic_dimensions[-1] == 1,
+    ])
