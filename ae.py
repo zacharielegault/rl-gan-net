@@ -1,3 +1,4 @@
+import argparse
 from typing import Sequence, Tuple
 import os
 import torch
@@ -149,9 +150,23 @@ def chamfer_loss(predicted_clouds: torch.Tensor, target_clouds: torch.Tensor, re
     return loss
 
 
-def main():
-    split = 1
-    model = AutoEncoder([3, 64, 128, 256, 128], [128, 256, 256, 3], 2048, split)
+def main(args: argparse.Namespace):
+    # Load config file
+    import yaml
+    from utils import dict_to_namespace, config_is_valid
+
+    with open(args.config_file, "r") as f:
+        config = yaml.safe_load(f)
+
+    config = dict_to_namespace(config)
+    assert config_is_valid(config)
+
+    # Define model
+    model = AutoEncoder([3, 64, 128, 256, 128], [128, 256, 256, 3], 2048, config.split)
+
+    # Train model
+    checkpoint_callback = ModelCheckpoint(monitor="loss/val", verbose=True)
+
     trainer = pl.Trainer(
         gpus=1,
         max_epochs=10000,
@@ -160,14 +175,32 @@ def main():
         auto_scale_batch_size="binsearch",
         default_root_dir="AE",
         callbacks=[
-            ModelCheckpoint(monitor="loss/val", verbose=True),
+            checkpoint_callback,
             EarlyStopping(monitor="loss/val", patience=500, verbose=True)
         ]
     )
 
+    print("Autoencoder training")
+    print(f"\ttensorboard --logdir {trainer.log_dir}")
+
     trainer.tune(model)
     trainer.fit(model)
 
+    if args.save_checkpoint:
+        # Add checkpoint to config file
+        with open(args.config_file, "r") as f:
+            config = yaml.safe_load(f)
+
+        config["autoencoder"]["checkpoint"] = os.path.relpath(checkpoint_callback.best_model_path, os.getcwd())
+
+        with open(args.config_file, "w") as f:
+            yaml.safe_dump(config, f)
+
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Trains the autoencoder for RL-GAN-Net.")
+    parser.add_argument("--config", dest="config_file", help="Path to the YAML configuration file.")
+    parser.add_argument("--save_checkpoint", action="store_true", default=False,
+                        help="Creates a new configuration file that includes the checkpoint path of the best model.")
+    args = parser.parse_args()
+    main(args)

@@ -10,7 +10,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from dataset import DentalArchesDataset
-from AE.ae import AutoEncoder
+from ae import AutoEncoder
 
 
 class GAN(pl.LightningModule):
@@ -215,6 +215,9 @@ def main(args: argparse.Namespace):
         ]
     )
 
+    print("GAN training")
+    print(f"\ttensorboard --logdir {trainer.log_dir}")
+
     trainer.tune(model)
     trainer.fit(model)
 
@@ -225,8 +228,7 @@ def main(args: argparse.Namespace):
 
         config["gan"]["checkpoint"] = os.path.relpath(checkpoint_callback.best_model_path, os.getcwd())
 
-        stem, ext = os.path.splitext(args.config_file)
-        with open(stem + "_gan" + ext, "w") as f:
+        with open(args.config_file, "w") as f:
             yaml.safe_dump(config, f)
 
 
