@@ -21,7 +21,8 @@ class GAN(pl.LightningModule):
             decoder_dimensions: Sequence[int],
             num_points: int,
             split: int,
-            autoencoder_checkpoint: str = None,
+            autoencoder: Optional[AutoEncoder] = None,
+            autoencoder_checkpoint: Optional[str] = None,  # Checkpoint is ignored if autoencoder is given
             lambda_gp: float = 10,
             lr: float = 3e-4,
             batch_size: int = 1,
@@ -39,9 +40,12 @@ class GAN(pl.LightningModule):
         self.critic_optimizer_frequency = critic_optimizer_frequency
 
         # Models
-        self.autoencoder = AutoEncoder(encoder_dimensions, decoder_dimensions, num_points, split)
-        if autoencoder_checkpoint is not None:
-            self.autoencoder.load_from_checkpoint(autoencoder_checkpoint)
+        if autoencoder is not None:
+            self.autoencoder = autoencoder
+        else:
+            self.autoencoder = AutoEncoder(encoder_dimensions, decoder_dimensions, num_points, split)
+            if autoencoder_checkpoint is not None:
+                self.autoencoder.load_from_checkpoint(autoencoder_checkpoint)
 
         self.generator = Generator(generator_dimensions)
         self.critic = Critic(critic_dimensions)
