@@ -48,11 +48,7 @@ class DentalArchesDataset(Dataset):
 
 
 def read_pointcloud(ply_file_path: str, subsample: Optional[int] = None, dtype: type = np.float32) -> np.ndarray:
-    """
-    Example usage to gather and subsample all PLY files in a directory:
-    >>> import os
-    >>> directory = ...
-    >>> crowns = np.asarray([read_pointcloud(os.path.join(directory, f), 2048) for f in os.listdir(directory)])
+    """Returns array with shape (n_points, 3)
     """
     cloud = o3d.io.read_point_cloud(ply_file_path)
     cloud = np.asarray(cloud.points, dtype=dtype)  # np.ndarray with shape (n, 3)
