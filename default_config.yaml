@@ -34,6 +34,6 @@ gan:
   - 128
   max_epochs: 10000
 gfv_dim: 128
-num_points: 2048
+num_points: 5000
 split: 1
 z_dim: 32
