@@ -35,6 +35,7 @@ class GAN(pl.LightningModule):
 
         self.split = split
 
+        self.num_points = num_points
         self.z_dim = z_dim
         self.lambda_gp = lambda_gp
         self.lr = lr
@@ -98,7 +99,7 @@ class GAN(pl.LightningModule):
             context_directory="data/preprocessed_partitions",
             opposing_directory="data/opposing_partitions",
             crown_directory="data/crowns",
-            num_points=2048,
+            num_points=self.num_points,
         )
 
         return DataLoader(
