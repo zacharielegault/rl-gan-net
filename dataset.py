@@ -60,9 +60,10 @@ def read_pointcloud(ply_file_path: str, subsample: Optional[int] = None, dtype: 
     return cloud
 
 
-def write_pointcloud(points: np.ndarray, ply_file_path: str) -> None:
+def write_pointcloud(points: np.ndarray, ply_file_path: str) -> o3d.geometry.PointCloud:
     """Expects array with shape (n_points, 3)
     """
     pointcloud = o3d.geometry.PointCloud()
     pointcloud.points = o3d.utility.Vector3dVector(points)
     o3d.io.write_point_cloud(ply_file_path, pointcloud)
+    return pointcloud

@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 
-from dataset import DentalArchesDataset
+from dataset import DentalArchesDataset, write_pointcloud
 from ae import AutoEncoder, chamfer_loss
 from gan import GAN
 
@@ -184,6 +184,26 @@ class DDPG(nn.Module):
 
         return {"total": reward, "gfv": reward_gfv, "chamfer": reward_chamfer, "disc": reward_disc}
 
+    @torch.no_grad()
+    def evaluation_step(
+            self,
+            step: int,
+            input_clouds: torch.Tensor,
+            autoencoder: AutoEncoder,
+            gan: GAN,
+            output_dir: str,
+            device: Optional[torch.device] = None,
+    ):
+        state_t = autoencoder.encoder(input_clouds.to(device))
+
+        write_pointcloud(input_clouds[0].permute([1, 0]).cpu().numpy(), output_dir + f'/{step}_val_input.ply')
+
+        ddpg_out = autoencoder.decoder(gan.generator(self.actor(state_t)))
+        write_pointcloud(ddpg_out[0].permute([1, 0]).cpu().numpy(), output_dir + f'/{step}_val_ddpg.ply')
+
+        ae_out = autoencoder.decoder(state_t)
+        write_pointcloud(ae_out[0].permute([1, 0]).cpu().numpy(), output_dir + f'/{step}_val_ae.ply')
+
     def to(self, device: torch.device):
         self.replay_buffer.device = device
         return super().to(device)
@@ -311,43 +331,8 @@ def main(args: argparse.Namespace):
         summary_writer.add_scalar('train mean reward_chamfer', reward["chamfer"].mean(), tsteps)
         summary_writer.add_scalar('train mean reward_disc', reward["disc"].mean(), tsteps)
 
-        if tsteps % 1 == 0 and tsteps > config.ddpg.start_time:
-            if tsteps % 1000 <= 10 and tsteps > config.ddpg.start_time:
-                state_t = autoencoder.encoder(input_clouds.to(device))
-
-                optimal_action = ddpg.actor(state_t).detach()
-                new_state = gan.generator(optimal_action)
-
-                out_data = autoencoder.decoder(new_state)
-
-                output = out_data[0, :, :]
-                output = output.permute([1, 0]).detach().cpu().numpy()
-
-                fig = plt.figure()
-                ax_x = fig.add_subplot(111, projection='3d')
-                x_ = output
-                ax_x.scatter(x_[:, 0], x_[:, 1], x_[:, 2])
-                ax_x.set_xlim([0, 1])
-                ax_x.set_ylim([0, 1])
-                ax_x.set_zlim([0, 1])
-                fig.savefig(OUTPUTS_DIR + '/{}_{}.png'.format(tsteps, 'val_out'))
-
-                output = autoencoder.decoder(state_t)  # generator
-                output = output[0, :, :]
-                output = output.permute([1, 0]).detach().cpu().numpy()
-
-                fig = plt.figure()
-                ax_x = fig.add_subplot(111, projection='3d')
-                x_ = output
-                ax_x.scatter(x_[:, 0], x_[:, 1], x_[:, 2])
-                ax_x.set_xlim([0, 1])
-                ax_x.set_ylim([0, 1])
-                ax_x.set_zlim([0, 1])
-                fig.savefig(OUTPUTS_DIR + '/{}_{}.png'.format(tsteps, 'val_in'))
-
-                plt.close('all')
-
-                torch.save(ddpg.state_dict(), MODEL_DIR + '{}_ddpg_.pt'.format(tsteps))
+        if tsteps % 1000 <= 10 and tsteps > config.ddpg.start_time:
+            ddpg.evaluation_step(tsteps, input_clouds, autoencoder, gan, OUTPUTS_DIR, device)
 
     torch.save(ddpg.state_dict(), MODEL_DIR + '{}_ddpg_.pt'.format('final'))
 
