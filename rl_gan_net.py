@@ -155,7 +155,14 @@ class DDPG(nn.Module):
         return value_loss, policy_loss
 
     @torch.no_grad()
-    def generate_examples(self, step: int, input_clouds, autoencoder: AutoEncoder, gan: GAN, device: Optional[torch.device]) -> Dict[str, torch.Tensor]:
+    def generate_examples(
+            self,
+            step: int,
+            input_clouds,
+            autoencoder: AutoEncoder,
+            gan: GAN,
+            device: Optional[torch.device] = None,
+    ) -> Dict[str, torch.Tensor]:
         state_t = autoencoder.encoder(input_clouds.to(device))
 
         if step < self.start_time:
