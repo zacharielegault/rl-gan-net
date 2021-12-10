@@ -36,6 +36,10 @@ class DentalArchesDataset(Dataset):
         input_cloud = np.concatenate([context, opposing], axis=0)
         target_cloud = np.concatenate([context, opposing, crown], axis=0)
 
+        # Standardize data to 0 mean and unit variance
+        input_cloud = (input_cloud - input_cloud.mean(0)) / input_cloud.std(0)
+        target_cloud = (target_cloud - target_cloud.mean(0)) / target_cloud.std(0)
+
         # Subsample point clouds
         input_cloud = input_cloud[np.random.choice(len(input_cloud), self.num_points, replace=False)]
         target_cloud = target_cloud[np.random.choice(len(target_cloud), self.num_points, replace=False)]
