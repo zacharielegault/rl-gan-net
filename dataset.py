@@ -1,10 +1,49 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 import numpy as np
 import open3d as o3d
 import os
+from glob import glob
+from enum import IntEnum, auto
+from sklearn.model_selection import train_test_split
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
+
+
+class Phase(IntEnum):
+    train = auto()
+    val = auto()
+    test = auto()
+
+
+class ShapeNetCoreDataset(Dataset):
+    def __init__(self, root_path: str, phase: Union[str, Phase], num_points: int):
+        self.root_path = root_path
+        self.phase = phase if isinstance(phase, Phase) else Phase[phase]
+        self.num_points = num_points
+
+        # Split train-val-test 80-10-10
+        all_files = sorted(glob(os.path.join(root_path, "*/*.ply")))
+        train, val_and_test = train_test_split(all_files, test_size=0.2, random_state=42)
+        val, test = val_and_test[:len(val_and_test)//2], val_and_test[len(val_and_test)//2:]
+        self._data = {Phase.train: train, Phase.val: val, Phase.test: test}  # Lists of paths to the PLY files
+
+    def __len__(self) -> int:
+        return len(self._data[self.phase])
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        cloud = read_pointcloud(self._data[self.phase][idx])
+
+        # Standardize data to 0 mean and unit variance
+        cloud = (cloud - cloud.mean(0)) / cloud.std(0)
+
+        # Subsample point clouds
+        cloud = cloud[np.random.choice(len(cloud), self.num_points, replace=False)]
+
+        # Swap axes to have channels dimension first
+        cloud = np.swapaxes(cloud, -1, -2)  # (3, num_point)
+
+        return torch.from_numpy(cloud), torch.from_numpy(cloud)
 
 
 class DentalArchesDataset(Dataset):
