@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
-from dataset import DentalArchesDataset
+from dataset import DentalArchesDataset, ShapeNetCoreDataset, write_pointcloud
 
 
 class AutoEncoder(pl.LightningModule):
@@ -65,11 +65,16 @@ class AutoEncoder(pl.LightningModule):
 
     def train_dataloader(self) -> DataLoader:
         num_workers = os.cpu_count()
-        train_dataset = DentalArchesDataset(
-            csv_filepath=f"data/kfold_split/split_{self.split}_train.csv",
-            context_directory="data/preprocessed_partitions",
-            opposing_directory="data/opposing_partitions",
-            crown_directory="data/crowns",
+        # train_dataset = DentalArchesDataset(
+        #     csv_filepath=f"data/kfold_split/split_{self.split}_train.csv",
+        #     context_directory="data/preprocessed_partitions",
+        #     opposing_directory="data/opposing_partitions",
+        #     crown_directory="data/crowns",
+        #     num_points=self.num_points,
+        # )
+        train_dataset = ShapeNetCoreDataset(
+            root_path="data/shape_net_core_uniform_samples_2048",
+            phase="train",
             num_points=self.num_points,
         )
 
@@ -85,12 +90,17 @@ class AutoEncoder(pl.LightningModule):
 
     def val_dataloader(self) -> DataLoader:
         num_workers = os.cpu_count()
-        val_dataset = DentalArchesDataset(
-                csv_filepath=f"data/kfold_split/split_{self.split}_val.csv",
-                context_directory="data/preprocessed_partitions",
-                opposing_directory="data/opposing_partitions",
-                crown_directory="data/crowns",
-                num_points=self.num_points,
+        # val_dataset = DentalArchesDataset(
+        #         csv_filepath=f"data/kfold_split/split_{self.split}_val.csv",
+        #         context_directory="data/preprocessed_partitions",
+        #         opposing_directory="data/opposing_partitions",
+        #         crown_directory="data/crowns",
+        #         num_points=self.num_points,
+        # )
+        val_dataset = ShapeNetCoreDataset(
+            root_path="data/shape_net_core_uniform_samples_2048",
+            phase="val",
+            num_points=self.num_points
         )
 
         return DataLoader(
