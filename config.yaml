@@ -11,6 +11,7 @@ autoencoder:
   - 128
   - 256
   - 128
+dataset: shapenet
 ddpg:
   batch_size_actor: 100
   max_action: 2

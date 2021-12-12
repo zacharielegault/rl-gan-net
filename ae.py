@@ -3,11 +3,10 @@ from typing import Sequence, Tuple
 import os
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
-from dataset import DentalArchesDataset, ShapeNetCoreDataset, write_pointcloud
+from dataset import write_pointcloud, DentalArchesDataModule, ShapeNetCoreDataModule
 
 
 class AutoEncoder(pl.LightningModule):
@@ -16,15 +15,11 @@ class AutoEncoder(pl.LightningModule):
             encoder_dimensions: Sequence[int],
             decoder_dimensions: Sequence[int],
             num_points: int,
-            split: int,
-            batch_size: int = 1,
     ):
         self.save_hyperparameters()
         super().__init__()
         self.encoder = Encoder(encoder_dimensions)
         self.decoder = Decoder(decoder_dimensions, num_points)
-        self.split = split
-        self.batch_size = batch_size
         self.num_points = num_points
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -62,55 +57,6 @@ class AutoEncoder(pl.LightningModule):
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         return torch.optim.Adam(self.parameters(), lr=0.02)
-
-    def train_dataloader(self) -> DataLoader:
-        num_workers = os.cpu_count()
-        # train_dataset = DentalArchesDataset(
-        #     csv_filepath=f"data/kfold_split/split_{self.split}_train.csv",
-        #     context_directory="data/preprocessed_partitions",
-        #     opposing_directory="data/opposing_partitions",
-        #     crown_directory="data/crowns",
-        #     num_points=self.num_points,
-        # )
-        train_dataset = ShapeNetCoreDataset(
-            root_path="data/shape_net_core_uniform_samples_2048",
-            phase="train",
-            num_points=self.num_points,
-        )
-
-        return DataLoader(
-            train_dataset,
-            shuffle=True,
-            batch_size=self.batch_size,
-            num_workers=num_workers,
-            pin_memory=True,
-            persistent_workers=num_workers > 0,
-            drop_last=True,
-        )
-
-    def val_dataloader(self) -> DataLoader:
-        num_workers = os.cpu_count()
-        # val_dataset = DentalArchesDataset(
-        #         csv_filepath=f"data/kfold_split/split_{self.split}_val.csv",
-        #         context_directory="data/preprocessed_partitions",
-        #         opposing_directory="data/opposing_partitions",
-        #         crown_directory="data/crowns",
-        #         num_points=self.num_points,
-        # )
-        val_dataset = ShapeNetCoreDataset(
-            root_path="data/shape_net_core_uniform_samples_2048",
-            phase="val",
-            num_points=self.num_points
-        )
-
-        return DataLoader(
-            val_dataset,
-            shuffle=False,
-            batch_size=1,
-            num_workers=num_workers,
-            pin_memory=True,
-            persistent_workers=num_workers > 0,
-        )
 
 
 class Encoder(nn.Module):
@@ -191,8 +137,13 @@ def main(args: argparse.Namespace):
         encoder_dimensions=config.autoencoder.encoder_dimensions,
         decoder_dimensions=config.autoencoder.decoder_dimensions,
         num_points=config.num_points,
-        split=config.split
     )
+
+    # Define dataset
+    if config.dataset == "dental":
+        datamodule = DentalArchesDataModule(num_points=config.num_points, split=config.split)  # num_workers=0
+    else:  # config.dataset == "shapenet"
+        datamodule = ShapeNetCoreDataModule(num_points=config.num_points)  # num_workers=0
 
     # Train model
     checkpoint_callback = ModelCheckpoint(monitor="loss/val", verbose=True)
@@ -217,8 +168,8 @@ def main(args: argparse.Namespace):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    trainer.tune(model)
-    trainer.fit(model)
+    trainer.tune(model, datamodule=datamodule)
+    trainer.fit(model, datamodule=datamodule)
 
     if args.save_checkpoint:
         # Add checkpoint to config file

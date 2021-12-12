@@ -7,13 +7,55 @@ from enum import IntEnum, auto
 from sklearn.model_selection import train_test_split
 import pandas as pd
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
+import pytorch_lightning as pl
 
 
 class Phase(IntEnum):
     train = auto()
     val = auto()
     test = auto()
+
+
+class ShapeNetCoreDataModule(pl.LightningDataModule):
+    def __init__(self, num_points: int, batch_size: int = 1, num_workers: Optional[int] = None):
+        super().__init__()
+        self.num_points = num_points
+        self.batch_size = batch_size
+        self.num_workers = num_workers if num_workers is not None else os.cpu_count()
+
+    def train_dataloader(self) -> DataLoader:
+        train_dataset = ShapeNetCoreDataset(
+            root_path="data/shape_net_core_uniform_samples_2048",
+            phase="train",
+            num_points=self.num_points,
+        )
+
+        return DataLoader(
+            train_dataset,
+            shuffle=True,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=self.num_workers > 0,
+            drop_last=True,
+        )
+
+    def val_dataloader(self) -> DataLoader:
+        val_dataset = ShapeNetCoreDataset(
+            root_path="data/shape_net_core_uniform_samples_2048",
+            phase="val",
+            num_points=self.num_points
+        )
+
+        return DataLoader(
+            val_dataset,
+            shuffle=False,
+            batch_size=1,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=self.num_workers > 0,
+        )
 
 
 class ShapeNetCoreDataset(Dataset):
@@ -44,6 +86,52 @@ class ShapeNetCoreDataset(Dataset):
         cloud = np.swapaxes(cloud, -1, -2)  # (3, num_point)
 
         return torch.from_numpy(cloud), torch.from_numpy(cloud)
+
+
+class DentalArchesDataModule(pl.LightningDataModule):
+    def __init__(self, num_points: int, split: int, batch_size: int = 1, num_workers: Optional[int] = None):
+        super().__init__()
+        self.num_points = num_points
+        self.split = split
+        self.batch_size = batch_size
+        self.num_workers = num_workers if num_workers is not None else os.cpu_count()
+
+    def train_dataloader(self):
+        train_dataset = DentalArchesDataset(
+            csv_filepath=f"data/kfold_split/split_{self.split}_train.csv",
+            context_directory="data/preprocessed_partitions",
+            opposing_directory="data/opposing_partitions",
+            crown_directory="data/crowns",
+            num_points=self.num_points,
+        )
+
+        return DataLoader(
+            train_dataset,
+            shuffle=True,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=self.num_workers > 0,
+            drop_last=True,
+        )
+
+    def val_dataloader(self):
+        val_dataset = DentalArchesDataset(
+            csv_filepath=f"data/kfold_split/split_{self.split}_val.csv",
+            context_directory="data/preprocessed_partitions",
+            opposing_directory="data/opposing_partitions",
+            crown_directory="data/crowns",
+            num_points=self.num_points,
+        )
+
+        return DataLoader(
+            val_dataset,
+            shuffle=False,
+            batch_size=1,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=self.num_workers > 0,
+        )
 
 
 class DentalArchesDataset(Dataset):

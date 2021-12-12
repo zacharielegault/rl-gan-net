@@ -14,6 +14,7 @@ def dict_to_namespace(d: dict) -> SimpleNamespace:
 def config_is_valid(config: SimpleNamespace) -> bool:
     """Check if the config is consistent.
     """
+    # TODO: if something is invalid, raise more explicit exception instead of just returning False
     return all([
         # Check autoencoder dimensions
         config.autoencoder.encoder_dimensions[0] == 3,
@@ -26,4 +27,7 @@ def config_is_valid(config: SimpleNamespace) -> bool:
         config.gan.generator_dimensions[-1] == config.gfv_dim,
         config.gan.critic_dimensions[0] == config.gfv_dim,
         config.gan.critic_dimensions[-1] == 1,
+
+        # Check dataset
+        config.dataset in ("dental", "shapenet"),
     ])
