@@ -105,7 +105,7 @@ class Encoder(nn.Module):
             if i < len(dimensions) - 2:
                 layers.append(nn.ReLU())
             else:
-                layers.append(nn.AdaptiveMaxPool1d(1))
+                layers.append(nn.AdaptiveAvgPool1d(1))
 
         self.net = nn.Sequential(*layers)
 
