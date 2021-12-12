@@ -21,7 +21,7 @@ ddpg:
   w_disc: 0.1
   w_gfv: 0.1
 gan:
-  batch_size: 8
+  batch_size: 8  # Recommend to use 8 for dental and 1024 for shapenet
   critic_dimensions:
   - 128
   - 128

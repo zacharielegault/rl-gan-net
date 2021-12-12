@@ -1,15 +1,13 @@
 import argparse
-from types import SimpleNamespace
 from typing import Optional, Sequence
 import os
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
-from dataset import DentalArchesDataset
+from dataset import write_pointcloud, DentalArchesDataModule, ShapeNetCoreDataModule
 from ae import AutoEncoder
 
 
@@ -22,31 +20,26 @@ class GAN(pl.LightningModule):
             encoder_dimensions: Sequence[int],
             decoder_dimensions: Sequence[int],
             num_points: int,
-            split: int,
             autoencoder: Optional[AutoEncoder] = None,
             autoencoder_checkpoint: Optional[str] = None,  # Checkpoint is ignored if autoencoder is given
             lambda_gp: float = 10,
             lr: float = 3e-4,
-            batch_size: int = 1,
             critic_optimizer_frequency: int = 5,
     ):
         super().__init__()
         self.save_hyperparameters()
 
-        self.split = split
-
         self.num_points = num_points
         self.z_dim = z_dim
         self.lambda_gp = lambda_gp
         self.lr = lr
-        self.batch_size = batch_size
         self.critic_optimizer_frequency = critic_optimizer_frequency
 
         # Models
         if autoencoder is not None:
             self.autoencoder = autoencoder
         else:
-            self.autoencoder = AutoEncoder(encoder_dimensions, decoder_dimensions, num_points, split)
+            self.autoencoder = AutoEncoder(encoder_dimensions, decoder_dimensions, num_points)
             if autoencoder_checkpoint is not None:
                 self.autoencoder.load_from_checkpoint(autoencoder_checkpoint)
 
@@ -90,25 +83,6 @@ class GAN(pl.LightningModule):
         return (
             {'optimizer': generator_optimizer, 'frequency': 1},
             {'optimizer': critic_optimizer, 'frequency': self.critic_optimizer_frequency}
-        )
-
-    def train_dataloader(self):
-        num_workers = 0  # os.cpu_count()
-        train_dataset = DentalArchesDataset(
-            csv_filepath=f"data/kfold_split/split_{self.split}_train.csv",
-            context_directory="data/preprocessed_partitions",
-            opposing_directory="data/opposing_partitions",
-            crown_directory="data/crowns",
-            num_points=self.num_points,
-        )
-
-        return DataLoader(
-            train_dataset,
-            shuffle=True,
-            batch_size=self.batch_size,
-            num_workers=num_workers,
-            pin_memory=True,
-            persistent_workers=num_workers > 0,
         )
 
 
@@ -196,9 +170,17 @@ def main(args: argparse.Namespace):
         decoder_dimensions=config.autoencoder.decoder_dimensions,
         num_points=config.num_points,
         autoencoder_checkpoint=config.autoencoder.checkpoint,
-        split=config.split,
-        batch_size=config.gan.batch_size,
     )
+
+    # Define dataset
+    if config.dataset == "dental":
+        datamodule = DentalArchesDataModule(
+            num_points=config.num_points,
+            split=config.split,
+            batch_size=config.gan.batch_size,
+        )
+    else:  # config.dataset == "shapenet"
+        datamodule = ShapeNetCoreDataModule(num_points=config.num_points, batch_size=512)
 
     # Train model
     checkpoint_callback = ModelCheckpoint(monitor="critic_loss", verbose=True)
@@ -219,8 +201,8 @@ def main(args: argparse.Namespace):
     print("GAN training")
     print(f"\ttensorboard --logdir {trainer.log_dir}")
 
-    trainer.tune(model)
-    trainer.fit(model)
+    trainer.tune(model, datamodule=datamodule)
+    trainer.fit(model, datamodule=datamodule)
 
     if args.save_checkpoint:
         # Add checkpoint to config file
