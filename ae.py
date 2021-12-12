@@ -39,7 +39,7 @@ class AutoEncoder(pl.LightningModule):
         input_clouds, target_clouds = batch
         predicted_clouds = self.decoder(self.encoder(input_clouds))
         loss = chamfer_loss(predicted_clouds, target_clouds)
-        self.log("loss/train", loss, on_step=False, on_epoch=True)
+        self.log("loss/train", loss, on_step=True)
         return loss
 
     def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
