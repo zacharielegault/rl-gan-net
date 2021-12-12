@@ -47,6 +47,17 @@ class AutoEncoder(pl.LightningModule):
         predicted_clouds = self.decoder(self.encoder(input_clouds))
         loss = chamfer_loss(predicted_clouds, target_clouds)
         self.log("loss/val", loss, on_step=False, on_epoch=True)
+
+        try:
+            if batch_idx == 0:
+                write_pointcloud(
+                    predicted_clouds[0].permute([1, 0]).cpu().numpy(),
+                    os.path.join(self.logger.log_dir, "outputs", f"epoch{self.current_epoch}.ply")
+                )
+        except AttributeError as e:
+            if "object has no attribute 'log_dir'" in str(e):
+                pass
+
         return loss
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
@@ -191,6 +202,10 @@ def main(args: argparse.Namespace):
 
     print("Autoencoder training")
     print(f"\ttensorboard --logdir {trainer.log_dir}")
+
+    output_dir = os.path.join(trainer.log_dir, "outputs")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
     trainer.tune(model)
     trainer.fit(model)
