@@ -99,7 +99,7 @@ class Encoder(nn.Module):
 
         layers = []
         for i, (in_channels, out_channels) in enumerate(zip(dimensions[:-1], dimensions[1:])):
-            layers.append(nn.Conv1d(in_channels, out_channels, 1))
+            layers.append(nn.Conv1d(in_channels, out_channels, (1,)))
             layers.append(nn.BatchNorm1d(out_channels))
 
             if i < len(dimensions) - 2:
