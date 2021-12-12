@@ -1,5 +1,4 @@
 import argparse
-from types import SimpleNamespace
 from typing import Optional, Dict
 import os
 import torch
@@ -8,13 +7,11 @@ from datetime import datetime
 from collections import deque
 
 import torch.nn as nn
-import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader
 
-from dataset import DentalArchesDataset, write_pointcloud
+from dataset import write_pointcloud, DentalArchesDataModule, ShapeNetCoreDataModule
 from ae import AutoEncoder, chamfer_loss
 from gan import GAN
 
@@ -227,7 +224,6 @@ def main(args: argparse.Namespace):
         encoder_dimensions=config.autoencoder.encoder_dimensions,
         decoder_dimensions=config.autoencoder.decoder_dimensions,
         num_points=config.num_points,
-        split=config.split,
     ).to(device)
     autoencoder.load_from_checkpoint(config.autoencoder.checkpoint)
 
@@ -238,7 +234,6 @@ def main(args: argparse.Namespace):
         encoder_dimensions=config.autoencoder.encoder_dimensions,
         decoder_dimensions=config.autoencoder.decoder_dimensions,
         num_points=config.num_points,
-        split=config.split,
         autoencoder=autoencoder,
     ).to(device)
     gan.load_from_checkpoint(config.gan.checkpoint)
@@ -258,24 +253,12 @@ def main(args: argparse.Namespace):
     autoencoder.eval()
     gan.eval()
 
-    # num_workers = os.cpu_count()
-    num_workers = 0
-    train_dataset = DentalArchesDataset(
-        csv_filepath=f"data/kfold_split/split_{config.split}_train.csv",
-        context_directory="data/preprocessed_partitions",
-        opposing_directory="data/opposing_partitions",
-        crown_directory="data/crowns",
-        num_points=config.num_points,
-    )
+    if config.dataset == "dental":
+        datamodule = DentalArchesDataModule(num_points=config.num_points, split=config.split, batch_size=1)
+    else:  # config.dataset == "shapenet"
+        datamodule = ShapeNetCoreDataModule(num_points=config.num_points, batch_size=1)
 
-    train_dataloader = DataLoader(
-        train_dataset,
-        shuffle=True,
-        batch_size=1,  # RL-GAN-Net paper uses batch size of 1
-        num_workers=num_workers,
-        pin_memory=True,
-        persistent_workers=num_workers > 0,
-    )
+    train_dataloader = datamodule.train_dataloader()
 
     train_loader_iterator = iter(train_dataloader)
 
