@@ -35,6 +35,6 @@ gan:
   - 128
   max_epochs: 10000
 gfv_dim: 128
-num_points: 5000
+num_points: 2048  # Maximum 2048 for shapenet
 split: 1
 z_dim: 32
