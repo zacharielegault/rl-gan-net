@@ -1,4 +1,5 @@
 #! /bin/bash
+set -e  # Exit this script if an error occurs in one of the following commands
 
 start_time=$(date +%Y_%m_%d_%H_%M_%S)
 config_path=config_${start_time}.yaml
