@@ -161,7 +161,7 @@ def main(args: argparse.Namespace):
         default_root_dir="AE",
         callbacks=[
             checkpoint_callback,
-            EarlyStopping(monitor="loss/val", patience=500, verbose=True)
+            EarlyStopping(monitor="loss/val", patience=config.autoencoder.patience, verbose=True)
         ]
     )
 

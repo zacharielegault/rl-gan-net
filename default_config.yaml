@@ -10,6 +10,7 @@ autoencoder:
   - 128
   - 256
   - 128
+  patience: 100
 dataset: dental  # Can be either "dental" or "shapenet"
 ddpg:
   batch_size_actor: 100
