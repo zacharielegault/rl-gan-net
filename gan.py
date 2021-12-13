@@ -180,7 +180,7 @@ def main(args: argparse.Namespace):
             batch_size=config.gan.batch_size,
         )
     else:  # config.dataset == "shapenet"
-        datamodule = ShapeNetCoreDataModule(num_points=config.num_points, batch_size=512)
+        datamodule = ShapeNetCoreDataModule(num_points=config.num_points, batch_size=512, root_path="data/shape_net_core_uniform_samples_2048")
 
     # Train model
     checkpoint_callback = ModelCheckpoint(monitor="critic_loss", verbose=True)

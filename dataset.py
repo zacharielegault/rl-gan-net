@@ -18,17 +18,27 @@ class Phase(IntEnum):
 
 
 class ShapeNetCoreDataModule(pl.LightningDataModule):
-    def __init__(self, num_points: int, batch_size: int = 1, num_workers: Optional[int] = None):
+    def __init__(
+            self,
+            root_path: str,
+            num_points: int,
+            batch_size: int = 1,
+            num_workers: Optional[int] = None,
+            subset_file: Optional[str] = None
+    ):
         super().__init__()
         self.num_points = num_points
         self.batch_size = batch_size
         self.num_workers = num_workers if num_workers is not None else os.cpu_count()
+        self.subset_file = subset_file
+        self.root_path = root_path
 
     def train_dataloader(self) -> DataLoader:
         train_dataset = ShapeNetCoreDataset(
-            root_path="data/shape_net_core_uniform_samples_2048",
+            root_path=self.root_path,
             phase="train",
             num_points=self.num_points,
+            subset_file=self.subset_file,
         )
 
         return DataLoader(
@@ -43,9 +53,10 @@ class ShapeNetCoreDataModule(pl.LightningDataModule):
 
     def val_dataloader(self) -> DataLoader:
         val_dataset = ShapeNetCoreDataset(
-            root_path="data/shape_net_core_uniform_samples_2048",
+            root_path=self.root_path,
             phase="val",
-            num_points=self.num_points
+            num_points=self.num_points,
+            subset_file=self.subset_file,
         )
 
         return DataLoader(
@@ -59,13 +70,22 @@ class ShapeNetCoreDataModule(pl.LightningDataModule):
 
 
 class ShapeNetCoreDataset(Dataset):
-    def __init__(self, root_path: str, phase: Union[str, Phase], num_points: int):
+    def __init__(self, root_path: str, phase: Union[str, Phase], num_points: int, subset_file: Optional[str] = None):
         self.root_path = root_path
         self.phase = phase if isinstance(phase, Phase) else Phase[phase]
         self.num_points = num_points
 
+        if subset_file is None:
+            all_files = sorted(glob(os.path.join(root_path, "*/*.ply")))
+        else:
+            with open(subset_file, "r") as f:
+                all_files = f.readlines()
+
+            all_files = [f.replace("\n", "") for f in all_files]  # Remove newline character
+            all_files = [os.path.join(root_path, f) for f in all_files]
+            assert all(os.path.exists(f) for f in all_files)
+
         # Split train-val-test 80-10-10
-        all_files = sorted(glob(os.path.join(root_path, "*/*.ply")))
         train, val_and_test = train_test_split(all_files, test_size=0.2, random_state=42)
         val, test = val_and_test[:len(val_and_test)//2], val_and_test[len(val_and_test)//2:]
         self._data = {Phase.train: train, Phase.val: val, Phase.test: test}  # Lists of paths to the PLY files

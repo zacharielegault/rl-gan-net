@@ -143,7 +143,7 @@ def main(args: argparse.Namespace):
     if config.dataset == "dental":
         datamodule = DentalArchesDataModule(num_points=config.num_points, split=config.split)
     else:  # config.dataset == "shapenet"
-        datamodule = ShapeNetCoreDataModule(num_points=config.num_points)
+        datamodule = ShapeNetCoreDataModule(num_points=config.num_points, root_path="data/shape_net_core_uniform_samples_2048")
 
     # Train model
     checkpoint_callback = ModelCheckpoint(monitor="loss/val", verbose=True)

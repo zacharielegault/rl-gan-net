@@ -256,7 +256,7 @@ def main(args: argparse.Namespace):
     if config.dataset == "dental":
         datamodule = DentalArchesDataModule(num_points=config.num_points, split=config.split, batch_size=1)
     else:  # config.dataset == "shapenet"
-        datamodule = ShapeNetCoreDataModule(num_points=config.num_points, batch_size=1)
+        datamodule = ShapeNetCoreDataModule(num_points=config.num_points, batch_size=1, root_path="data/shape_net_core_uniform_samples_2048")
 
     train_dataloader = datamodule.train_dataloader()
 
