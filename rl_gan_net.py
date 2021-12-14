@@ -215,7 +215,7 @@ def main(args: argparse.Namespace):
         config = yaml.safe_load(f)
 
     config = dict_to_namespace(config)
-    assert config_is_valid(config)
+    config_is_valid(config)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(15)
