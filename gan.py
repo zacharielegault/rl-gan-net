@@ -41,7 +41,7 @@ class GAN(pl.LightningModule):
         else:
             self.autoencoder = AutoEncoder(encoder_dimensions, decoder_dimensions, num_points)
             if autoencoder_checkpoint is not None:
-                self.autoencoder.load_from_checkpoint(autoencoder_checkpoint)
+                self.autoencoder = self.autoencoder.load_from_checkpoint(autoencoder_checkpoint)
 
         self.generator = Generator(generator_dimensions)
         self.critic = Critic(critic_dimensions)
