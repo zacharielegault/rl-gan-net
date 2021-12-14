@@ -224,8 +224,9 @@ def main(args: argparse.Namespace):
         encoder_dimensions=config.autoencoder.encoder_dimensions,
         decoder_dimensions=config.autoencoder.decoder_dimensions,
         num_points=config.num_points,
-    ).to(device)
+    )
     autoencoder = autoencoder.load_from_checkpoint(config.autoencoder.checkpoint)
+    autoencoder.to(device)
 
     gan = GAN(
         z_dim=32,
@@ -235,8 +236,9 @@ def main(args: argparse.Namespace):
         decoder_dimensions=config.autoencoder.decoder_dimensions,
         num_points=config.num_points,
         autoencoder=autoencoder,
-    ).to(device)
+    )
     gan = gan.load_from_checkpoint(config.gan.checkpoint)
+    gan.to(device)
 
     ddpg = DDPG(
         max_action=config.ddpg.max_action,
