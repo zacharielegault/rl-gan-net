@@ -44,7 +44,7 @@ class AutoEncoder(pl.LightningModule):
         self.log("loss/val", loss, on_step=False, on_epoch=True)
 
         try:
-            if batch_idx == 0:
+            if batch_idx == 0 and self.current_epoch % 50 == 0:
                 write_pointcloud(
                     predicted_clouds[0].permute([1, 0]).cpu().numpy(),
                     os.path.join(self.logger.log_dir, "outputs", f"epoch{self.current_epoch}.ply")
