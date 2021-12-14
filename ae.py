@@ -156,7 +156,7 @@ def main(args: argparse.Namespace):
         gpus=1,
         max_epochs=10000,
         log_every_n_steps=1,
-        precision=16,
+        # precision=16,
         auto_scale_batch_size="binsearch",
         default_root_dir="AE",
         callbacks=[
