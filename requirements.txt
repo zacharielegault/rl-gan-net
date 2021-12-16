@@ -8,3 +8,4 @@ typing
 datetime
 matplotlib
 yaml
+scikit-learn
